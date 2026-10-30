@@ -1,0 +1,12 @@
+{
+  "name": "capcut-team-profiles",
+  "version": "1.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Hàng đợi tài khoản + Chrome profile tạm + proxy + chrome-devtools-mcp",
+  "scripts": {
+    "setup:chrome142": "node scripts/setup-chrome-142.js",
+    "ui": "node src/server.js",
+    "start": "node src/server.js"
+  }
+}

@@ -1,0 +1,12 @@
+profiles/
+mcp/
+data/
+node_modules/
+profiles.json
+.qoder/
+*.log
+*.tmp
+vendor/downloads/
+vendor/chrome-142/
+vendor/chromedriver-142/
+vendor/chrome-142.json
