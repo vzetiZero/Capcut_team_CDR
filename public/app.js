@@ -191,7 +191,8 @@ const QUEUE_LABELS = {
   closed: ['Đã đóng', ''],
   error: ['Lỗi', 'bad'],
   stopped: ['Đã dừng', 'warn'],
-  completed: ['Đã xong trước', 'ok']
+  completed: ['Đã xong trước', 'ok'],
+  retry: ['Chờ chạy lại', 'warn']
 };
 
 function queueSignature(queue) {
@@ -238,7 +239,8 @@ function renderQueue() {
   } else {
     const counts = queue.counts;
     const skipped = counts.completed ? ` · ${counts.completed} đã xong trước` : '';
-    const summary = `${counts.running}/${counts.total} đang mở · ${counts.queued} chờ · ${counts.closed} đóng · ${counts.error} lỗi${skipped}`;
+    const retry = counts.retry ? ` · ${counts.retry} chờ chạy lại` : '';
+    const summary = `${counts.running}/${counts.total} đang mở · ${counts.queued} chờ · ${counts.closed} đóng · ${counts.error} lỗi${retry}${skipped}`;
     $('queue-summary').textContent = summary;
     $('queue-counts').textContent = summary;
 
@@ -289,6 +291,9 @@ function renderQueue() {
         } else if (entry.flow.status === 'error') {
           flow.className = 'row-error';
           flow.textContent = `Đăng nhập: ${entry.flow.message}`;
+        } else if (entry.flow.status === 'retry') {
+          flow.className = 'row-error';
+          flow.textContent = entry.flow.message;
         } else if (entry.flow.status === 'running') {
           flow.className = 'row-note';
           flow.textContent = entry.flow.step || 'Đang đăng nhập...';

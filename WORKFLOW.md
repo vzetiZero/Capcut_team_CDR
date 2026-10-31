@@ -123,6 +123,9 @@ Sau khi profile mở link team, server tự điều khiển tab qua CDP:
    Phần id và query phía sau tùy từng tài khoản, chỉ cần đúng tiền tố này. Chỉ khi thấy URL đó mới
    in log `THÀNH CÔNG: đã vào my-cloud (...)` và đánh dấu dòng hàng đợi màu xanh. Nếu trang báo
    “Can’t join space”, flow bấm **OK** rồi tiếp tục chờ; hết thời gian mới báo lỗi.
+   Nếu gặp panel `JoinErrPanelTitle-GWfMxQ` (“Can’t submit request”), tài khoản được đánh dấu
+   **Chờ chạy lại** (không ghi lịch sử), Chrome đóng và profile tạm bị xoá; lần chạy sau nhập lại
+   danh sách, tài khoản này sẽ được chạy tiếp vì chưa có trong lịch sử.
 6. Nếu bật **Xoá profile sau khi xong**, sau khoảng 2 giây server tự đóng Chrome, xoá profile + MCP
    và mở tài khoản kế tiếp. Tắt tuỳ chọn này thì cửa sổ giữ nguyên để kiểm tra, bấm **Xong** khi xong.
 
@@ -228,6 +231,7 @@ Dùng MCP server chrome-devtools-<tên profile>.
 | Flow báo `Không tìm thấy nút ...` | CapCut đổi giao diện; cập nhật selector trong `src/flow.js`. |
 | Flow báo `Đã bấm Submit nhưng chưa chuyển về my-cloud` | Submit chưa được chấp nhận hoặc CapCut đổi URL đích; mở cửa sổ kiểm tra thủ công rồi chạy lại tài khoản đó. |
 | Flow báo `CapCut báo "Can’t join space" và chưa chuyển về my-cloud` | Flow đã bấm OK nhưng tab không vào my-cloud trong 60 giây. Kiểm tra cửa sổ Chrome còn mở, xử lý thủ công rồi chạy lại tài khoản. |
+| Dòng hiện `Chờ chạy lại` / `Tài khoản chưa join được` | CapCut trả panel `Can’t submit request`. Tài khoản không được ghi lịch sử và sẽ chạy lại ở lần chạy hàng đợi kế tiếp. |
 | Đóng cửa sổ mà không mở tài khoản kế tiếp | Hàng đợi đã dừng hoặc đã hết danh sách; xem cột trạng thái. |
 | Profile không bị xoá | Windows còn giữ file; server thử lại vài lần. Xem ghi chú lỗi ở cột trạng thái; đóng Chrome rồi xoá thủ công nếu cần. |
 | Proxy không hoạt động | Kiểm tra host/port/user/pass; xem log bridge; thử `ipinfo.io`. |

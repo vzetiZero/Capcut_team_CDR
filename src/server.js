@@ -37,7 +37,7 @@ const queue = {
 };
 
 function queueCounts() {
-  const counts = { total: 0, queued: 0, launching: 0, running: 0, closed: 0, error: 0, stopped: 0, completed: 0 };
+  const counts = { total: 0, queued: 0, launching: 0, running: 0, closed: 0, error: 0, stopped: 0, completed: 0, retry: 0 };
   for (const entry of queue.accounts) {
     counts.total += 1;
     if (counts[entry.status] !== undefined) counts[entry.status] += 1;
@@ -162,11 +162,38 @@ function startEntryFlow(entry) {
       if (entry.flow !== flow) return;
       entry.password = '';
       if (flow.status !== 'running') return;
-      flow.status = 'error';
       flow.message = err.message;
       flow.finishedAt = Date.now();
+      if (err.code === 'join-retry') {
+        flow.status = 'retry';
+        entry.status = 'retry';
+        entry.slot = null;
+        entry.proxy = null;
+        entry.closedAt = Date.now();
+        console.warn(`[flow] CHƯA JOIN: ${entry.email}: ${err.message}`);
+        scheduleRetryClose(entry, flow);
+        reconcileQueue();
+        return;
+      }
+      flow.status = 'error';
       console.warn(`[flow] LỖI: ${entry.email}: ${err.message}`);
     });
+}
+
+function scheduleRetryClose(entry, flow) {
+  if (!queue.ephemeral) return;
+  setTimeout(async () => {
+    if (!queue.accounts.includes(entry) || entry.flow !== flow || flow.status !== 'retry') return;
+    try {
+      await closeProfile(entry.name);
+      if (entry.flow !== flow) return;
+      cleanupQueueEntry(entry);
+      reconcileQueue();
+      console.log(`[flow] Đã đóng Chrome và xoá profile: ${entry.email}`);
+    } catch (err) {
+      console.warn(`[flow] Không tự đóng ${entry.email}: ${err.message}`);
+    }
+  }, 2000);
 }
 
 function scheduleAutoClose(entry, flow) {
