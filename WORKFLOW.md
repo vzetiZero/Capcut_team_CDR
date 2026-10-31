@@ -22,12 +22,16 @@ cố định cho cả phiên của profile (không xoay theo request) để sess
 
 ## 0. Yêu cầu
 
-- Node.js 22+ (dùng `WebSocket` có sẵn; đã test với Node 24). Không cần `npm install`.
+- Node.js 22+ (dùng `WebSocket` có sẵn; đã test với Node 24). Dự án không có thư viện runtime bên ngoài.
 - Chrome 142 for Testing tải sẵn trong `vendor/` (khuyến nghị), hoặc Chrome stable cài trên máy.
 
-### 0.1 Tải Chrome 142 + ChromeDriver
+### 0.1 Cài đặt
+
+Chạy `install.bat` (nhấp đúp) để kiểm tra Node.js 22+, chạy `npm install` và tải Chrome 142 +
+ChromeDriver. Có thể chạy tay:
 
 ```bash
+npm install
 npm run setup:chrome142
 ```
 
