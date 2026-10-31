@@ -1,7 +1,7 @@
 import { createPageSession } from './cdp.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const CLOUD_URL = /capcut\.com\/my-cloud/i;
+const CLOUD_URL = /^https?:\/\/(?:www\.)?capcut\.com\/my-cloud\//i;
 
 async function fetchJson(url, timeoutMs = 1500) {
   const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
@@ -10,12 +10,10 @@ async function fetchJson(url, timeoutMs = 1500) {
 }
 
 const BLOCKED_TEXT = /can[’']?t join space|unusual activities|không thể tham gia/i;
-const BLOCKED_ERROR = 'CapCut từ chối join space: "Can’t join space — unusual activities" — tài khoản bị đánh dấu, cần xử lý thủ công.';
 
 const DETECT = `(function () {
   const visible = (el) => Boolean(el) && (el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0);
-  if (location.href.includes('/my-cloud')) return 'cloud';
-  if (${BLOCKED_TEXT}.test(document.body ? document.body.innerText : '')) return 'blocked';
+  if (/^https?:\\/\\/(?:www\\.)?capcut\\.com\\/my-cloud\\//i.test(location.href)) return 'cloud';
   if (visible(document.querySelector('input[autocomplete="one-time-code"], input[name="code"]'))) return 'verify';
   if (visible(document.querySelector('iframe[src*="captcha"], iframe[src*="verify"]'))) return 'captcha';
   if (visible(document.querySelector('button.JoinPanelBtn-Ffvlan, .JoinPanel-Y4S5YH button'))) return 'join';
@@ -106,7 +104,7 @@ async function waitState(session, wanted, timeoutMs, label, log) {
   let last = '';
   while (Date.now() < deadline) {
     const state = await evaluateLoose(session, DETECT);
-    if (state === 'verify' || state === 'captcha' || state === 'blocked') return state;
+    if (state === 'verify' || state === 'captcha') return state;
     if (state && wanted.includes(state)) return state;
     if (state && state !== last) {
       last = state;
@@ -132,6 +130,15 @@ async function cloudTabUrl(cdpPort) {
   }
 }
 
+const DISMISS_OK = `(function () {
+  const visible = (el) => Boolean(el) && (el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0);
+  const button = [...document.querySelectorAll('button, [role="button"]')]
+    .find((el) => visible(el) && el.textContent.trim().toLowerCase() === 'ok');
+  if (!button) return false;
+  button.click();
+  return true;
+})()`;
+
 async function waitCloud(cdpPort, session, timeoutMs, log) {
   const deadline = Date.now() + timeoutMs;
   const probe = `(function () {
@@ -141,6 +148,7 @@ async function waitCloud(cdpPort, session, timeoutMs, log) {
     };
   })()`;
   let last = '';
+  let blockedNotice = false;
   while (Date.now() < deadline) {
     const info = await evaluateLoose(session, probe);
     const href = info?.href || '';
@@ -149,7 +157,11 @@ async function waitCloud(cdpPort, session, timeoutMs, log) {
       log(`URL hiện tại: ${href}`);
     }
     if (CLOUD_URL.test(href)) return href;
-    if (info?.blocked) throw new Error(BLOCKED_ERROR);
+    if (info?.blocked && !blockedNotice) {
+      blockedNotice = true;
+      log('Trang báo "Can’t join space" — bấm OK và tiếp tục chờ my-cloud...');
+      await evaluateLoose(session, DISMISS_OK);
+    }
     const tabUrl = await cloudTabUrl(cdpPort);
     if (tabUrl) {
       if (tabUrl !== last) log(`URL hiện tại: ${tabUrl}`);
@@ -157,13 +169,14 @@ async function waitCloud(cdpPort, session, timeoutMs, log) {
     }
     await sleep(500);
   }
-  throw new Error('Đã bấm Submit nhưng chưa chuyển về my-cloud — kiểm tra thủ công.');
+  throw new Error(blockedNotice
+    ? 'Đã bấm Submit, CapCut báo "Can’t join space" và chưa chuyển về my-cloud — kiểm tra thủ công.'
+    : 'Đã bấm Submit nhưng chưa chuyển về my-cloud — kiểm tra thủ công.');
 }
 
 function ensureNoBlock(state) {
   if (state === 'verify') throw new Error('CapCut yêu cầu mã xác minh/OTP — cần xử lý thủ công.');
   if (state === 'captcha') throw new Error('CapCut hiện captcha — cần xử lý thủ công.');
-  if (state === 'blocked') throw new Error(BLOCKED_ERROR);
 }
 
 async function cloudSuccess(session, cdpPort, log) {

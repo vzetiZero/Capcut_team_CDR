@@ -71,11 +71,12 @@ có thể chứa thông tin đăng nhập proxy — không chia sẻ file này.
 
 ## 2. Chạy bằng UI
 
-```bash
-npm run ui
+```bat
+start.bat
 ```
 
-Mở `http://127.0.0.1:8788`. UI chỉ bind loopback, gồm 3 tab:
+Hoặc `npm run ui`. `start.bat` mở server và tự mở trình duyệt tới `http://127.0.0.1:8788`.
+UI chỉ bind loopback, gồm 3 tab:
 
 - **Tài khoản** (mặc định): link team, danh sách `email | mật khẩu`, số luồng, headless,
   bật/tắt xoá profile, chạy hàng đợi và bảng trạng thái.
@@ -118,9 +119,10 @@ Sau khi profile mở link team, server tự điều khiển tab qua CDP:
 3. Chờ `input[name="password"]`, điền mật khẩu, bấm **Sign in**
    (`button.lv_sign_in_panel_wide-sign-in-button`).
 4. Chờ form **Join space** (`.JoinPanel-Y4S5YH`) và bấm **Submit** (`.JoinPanelBtn-Ffvlan`).
-5. Sau Submit, chờ tab chuyển tới URL chứa `capcut.com/my-cloud/` (tối đa 60 giây). Chỉ khi thấy
-   URL này mới in log `THÀNH CÔNG: đã vào my-cloud (...)` và đánh dấu dòng hàng đợi màu xanh.
-   Nếu quá thời gian, dòng chuyển lỗi `Đã bấm Submit nhưng chưa chuyển về my-cloud`.
+5. Sau Submit, chờ tab chuyển tới URL chứa `https://www.capcut.com/my-cloud/` (tối đa 60 giây).
+   Phần id và query phía sau tùy từng tài khoản, chỉ cần đúng tiền tố này. Chỉ khi thấy URL đó mới
+   in log `THÀNH CÔNG: đã vào my-cloud (...)` và đánh dấu dòng hàng đợi màu xanh. Nếu trang báo
+   “Can’t join space”, flow bấm **OK** rồi tiếp tục chờ; hết thời gian mới báo lỗi.
 6. Nếu bật **Xoá profile sau khi xong**, sau khoảng 2 giây server tự đóng Chrome, xoá profile + MCP
    và mở tài khoản kế tiếp. Tắt tuỳ chọn này thì cửa sổ giữ nguyên để kiểm tra, bấm **Xong** khi xong.
 
@@ -225,7 +227,7 @@ Dùng MCP server chrome-devtools-<tên profile>.
 | Flow báo yêu cầu OTP/captcha | Xử lý thủ công trong cửa sổ Chrome rồi bấm Xong; flow không vượt xác minh. |
 | Flow báo `Không tìm thấy nút ...` | CapCut đổi giao diện; cập nhật selector trong `src/flow.js`. |
 | Flow báo `Đã bấm Submit nhưng chưa chuyển về my-cloud` | Submit chưa được chấp nhận hoặc CapCut đổi URL đích; mở cửa sổ kiểm tra thủ công rồi chạy lại tài khoản đó. |
-| Flow báo `CapCut từ chối join space — unusual activities` | CapCut chặn tài khoản join space (trang team-invite hiện “Can’t join space”). Không ghi nhận thành công; xử lý tài khoản thủ công rồi chạy lại. |
+| Flow báo `CapCut báo "Can’t join space" và chưa chuyển về my-cloud` | Flow đã bấm OK nhưng tab không vào my-cloud trong 60 giây. Kiểm tra cửa sổ Chrome còn mở, xử lý thủ công rồi chạy lại tài khoản. |
 | Đóng cửa sổ mà không mở tài khoản kế tiếp | Hàng đợi đã dừng hoặc đã hết danh sách; xem cột trạng thái. |
 | Profile không bị xoá | Windows còn giữ file; server thử lại vài lần. Xem ghi chú lỗi ở cột trạng thái; đóng Chrome rồi xoá thủ công nếu cần. |
 | Proxy không hoạt động | Kiểm tra host/port/user/pass; xem log bridge; thử `ipinfo.io`. |
