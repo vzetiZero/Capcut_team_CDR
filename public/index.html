@@ -25,8 +25,7 @@
       <section id="tab-accounts" class="tab-panel">
         <section class="card">
           <div class="card-head">
-            <h2>Dữ liệu chạy</h2>
-            <span id="queue-summary" class="hint"></span>
+            <h2>Nhập tài khoản</h2>
           </div>
           <label>
             Link team
@@ -84,8 +83,22 @@
 
         <section class="card">
           <div class="card-head">
-            <h2>Hàng đợi</h2>
+            <h2>Dữ liệu chạy</h2>
             <span id="queue-counts" class="hint"></span>
+          </div>
+          <div id="queue-filters" class="queue-filters" role="tablist" aria-label="Lọc dữ liệu chạy">
+            <button class="queue-filter active" data-filter="all" type="button" role="tab">
+              Tất cả <span class="filter-count">0</span>
+            </button>
+            <button class="queue-filter" data-filter="success" type="button" role="tab">
+              Thành công <span class="filter-count">0</span>
+            </button>
+            <button class="queue-filter" data-filter="error" type="button" role="tab">
+              Lỗi <span class="filter-count">0</span>
+            </button>
+            <button class="queue-filter" data-filter="retry" type="button" role="tab">
+              Chờ chạy lại <span class="filter-count">0</span>
+            </button>
           </div>
           <table>
             <thead>
@@ -105,6 +118,13 @@
             <span id="history-summary" class="hint"></span>
             <button id="clear-history" type="button">Xoá lịch sử hoàn tất</button>
           </div>
+          <p class="hint">
+            Bấm từng menu để xem danh sách: <strong>Thành công</strong> là tài khoản đã vào
+            <code>capcut.com/my-cloud/</code> (gồm cả tài khoản bỏ qua vì đã xong trước đó),
+            <strong>Lỗi</strong> là flow dừng vì OTP/captcha hoặc lỗi khác, <strong>Chờ chạy lại</strong> là
+            tài khoản bị <strong>Can’t submit request</strong> và sẽ chạy lại ở lần sau. Danh sách chỉ giữ
+            trong phiên server hiện tại; lịch sử hoàn tất chỉ lưu hash email trên máy này.
+          </p>
         </section>
       </section>
 

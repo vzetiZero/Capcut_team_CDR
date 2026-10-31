@@ -230,6 +230,22 @@ const QUEUE_LABELS = {
   retry: ['Chờ chạy lại', 'warn']
 };
 
+const QUEUE_FILTERS = {
+  all: 'Tất cả',
+  success: 'Thành công',
+  error: 'Lỗi',
+  retry: 'Chờ chạy lại'
+};
+let queueFilter = 'all';
+
+function queueBucket(entry) {
+  const flow = entry.flow?.status;
+  if (entry.status === 'retry' || flow === 'retry') return 'retry';
+  if (entry.status === 'completed' || flow === 'success' || flow === 'completed') return 'success';
+  if (entry.status === 'error' || flow === 'error') return 'error';
+  return 'other';
+}
+
 function queueSignature(queue) {
   if (!queue) return '';
   return JSON.stringify({
@@ -255,122 +271,154 @@ function queueStatusNote(entry) {
   return null;
 }
 
+function renderQueueEmpty(body, text) {
+  body.replaceChildren();
+  const row = document.createElement('tr');
+  const cell = document.createElement('td');
+  cell.colSpan = 5;
+  cell.className = 'empty';
+  cell.textContent = text;
+  row.append(cell);
+  body.append(row);
+}
+
+function renderQueueFilters(accounts) {
+  const buckets = { all: accounts.length, success: 0, error: 0, retry: 0 };
+  for (const entry of accounts) {
+    const bucket = queueBucket(entry);
+    if (bucket !== 'other') buckets[bucket] += 1;
+  }
+  for (const button of document.querySelectorAll('.queue-filter')) {
+    const key = button.dataset.filter;
+    button.classList.toggle('active', key === queueFilter);
+    button.setAttribute('aria-selected', String(key === queueFilter));
+    const badge = button.querySelector('.filter-count');
+    if (badge) badge.textContent = buckets[key] ?? 0;
+  }
+}
+
 function renderQueue() {
   const queue = state.queue;
   const body = $('queue-body');
   if (!body) return;
 
-  if (!queue || queue.accounts.length === 0) {
-    body.replaceChildren();
-    const row = document.createElement('tr');
-    const cell = document.createElement('td');
-    cell.colSpan = 5;
-    cell.className = 'empty';
-    cell.textContent = 'Chưa chạy hàng đợi.';
-    row.append(cell);
-    body.append(row);
-    $('queue-summary').textContent = '';
+  const accounts = queue?.accounts || [];
+  renderQueueFilters(accounts);
+
+  if (!queue) {
     $('queue-counts').textContent = '';
   } else {
     const counts = queue.counts;
     const skipped = counts.completed ? ` · ${counts.completed} đã xong trước` : '';
     const retry = counts.retry ? ` · ${counts.retry} chờ chạy lại` : '';
-    const summary = `${counts.running}/${counts.total} đang mở · ${counts.queued} chờ · ${counts.closed} đóng · ${counts.error} lỗi${retry}${skipped}`;
-    $('queue-summary').textContent = summary;
-    $('queue-counts').textContent = summary;
+    $('queue-counts').textContent =
+      `${counts.running}/${counts.total} đang mở · ${counts.queued} chờ · ${counts.closed} đóng · ${counts.error} lỗi${retry}${skipped}`;
+  }
 
-    body.replaceChildren();
-    for (const entry of queue.accounts) {
-      const row = document.createElement('tr');
+  if (accounts.length === 0) {
+    renderQueueEmpty(body, 'Chưa chạy hàng đợi.');
+    return;
+  }
 
-      const emailCell = document.createElement('td');
-      const email = document.createElement('span');
-      email.textContent = entry.email;
-      emailCell.append(email);
-      const name = document.createElement('code');
-      name.className = 'profile-name';
-      name.textContent = entry.name;
-      name.title = 'Thư mục profile tạm';
-      emailCell.append(name);
-      row.append(emailCell);
+  const entries = queueFilter === 'all'
+    ? accounts
+    : accounts.filter((entry) => queueBucket(entry) === queueFilter);
+  if (entries.length === 0) {
+    renderQueueEmpty(body, `Không có tài khoản ở mục "${QUEUE_FILTERS[queueFilter]}".`);
+    return;
+  }
 
-      const proxyCell = document.createElement('td');
-      proxyCell.textContent = entry.proxy || 'IP máy';
-      row.append(proxyCell);
+  body.replaceChildren();
+  for (const entry of entries) {
+    const row = document.createElement('tr');
 
-      const statusCell = document.createElement('td');
-      const badge = document.createElement('span');
-      const [label, tone] = QUEUE_LABELS[entry.status] || ['?', ''];
-      badge.className = `badge ${tone}`.trim();
-      badge.textContent = entry.headless && entry.status === 'running' ? `${label} · ẩn` : label;
-      if (entry.error) badge.title = entry.error;
-      statusCell.append(badge);
-      if (entry.error) {
-        const error = document.createElement('p');
-        error.className = 'row-error';
-        error.textContent = entry.error;
-        statusCell.append(error);
-      }
-      const note = queueStatusNote(entry);
-      if (note) {
-        const element = document.createElement('p');
-        element.className = note.error ? 'row-error' : 'row-note';
-        element.textContent = note.text;
-        statusCell.append(element);
-      }
-      if (entry.flow) {
-        const flow = document.createElement('p');
-        if (entry.flow.status === 'success' || entry.flow.status === 'completed') {
-          flow.className = 'row-note ok';
-          flow.textContent = entry.flow.message;
-        } else if (entry.flow.status === 'error') {
-          flow.className = 'row-error';
-          flow.textContent = `Đăng nhập: ${entry.flow.message}`;
-        } else if (entry.flow.status === 'retry') {
-          flow.className = 'row-error';
-          flow.textContent = entry.flow.message;
-        } else if (entry.flow.status === 'running') {
-          flow.className = 'row-note';
-          flow.textContent = entry.flow.step || 'Đang đăng nhập...';
-        } else if (entry.flow.status === 'skipped') {
-          flow.className = 'row-note';
-          flow.textContent = entry.flow.message;
-        }
-        if (flow.className) statusCell.append(flow);
-      }
-      row.append(statusCell);
+    const emailCell = document.createElement('td');
+    const email = document.createElement('span');
+    email.textContent = entry.email;
+    emailCell.append(email);
+    const name = document.createElement('code');
+    name.className = 'profile-name';
+    name.textContent = entry.name;
+    name.title = 'Thư mục profile tạm';
+    emailCell.append(name);
+    row.append(emailCell);
 
-      const cdpCell = document.createElement('td');
-      cdpCell.textContent = entry.cdpPort ? `:${entry.cdpPort}` : '—';
-      row.append(cdpCell);
+    const proxyCell = document.createElement('td');
+    proxyCell.textContent = entry.proxy || 'IP máy';
+    row.append(proxyCell);
 
-      const actionCell = document.createElement('td');
-      const actions = document.createElement('div');
-      actions.className = 'row-actions';
-
-      const mcp = document.createElement('button');
-      mcp.type = 'button';
-      mcp.dataset.action = 'queue-mcp';
-      mcp.dataset.name = entry.name;
-      mcp.textContent = 'Copy MCP';
-      mcp.disabled = entry.status !== 'running' || !entry.cdpPort;
-
-      const done = document.createElement('button');
-      done.type = 'button';
-      done.className = 'primary';
-      done.dataset.action = 'queue-complete';
-      done.dataset.name = entry.name;
-      done.dataset.email = entry.email;
-      done.textContent = 'Xong';
-      done.title = 'Đóng Chrome và xoá profile nếu đang bật xoá';
-      done.disabled = entry.status !== 'running';
-
-      actions.append(mcp, done);
-      actionCell.append(actions);
-      row.append(actionCell);
-
-      body.append(row);
+    const statusCell = document.createElement('td');
+    const badge = document.createElement('span');
+    const [label, tone] = QUEUE_LABELS[entry.status] || ['?', ''];
+    badge.className = `badge ${tone}`.trim();
+    badge.textContent = entry.headless && entry.status === 'running' ? `${label} · ẩn` : label;
+    if (entry.error) badge.title = entry.error;
+    statusCell.append(badge);
+    if (entry.error) {
+      const error = document.createElement('p');
+      error.className = 'row-error';
+      error.textContent = entry.error;
+      statusCell.append(error);
     }
+    const note = queueStatusNote(entry);
+    if (note) {
+      const element = document.createElement('p');
+      element.className = note.error ? 'row-error' : 'row-note';
+      element.textContent = note.text;
+      statusCell.append(element);
+    }
+    if (entry.flow) {
+      const flow = document.createElement('p');
+      if (entry.flow.status === 'success' || entry.flow.status === 'completed') {
+        flow.className = 'row-note ok';
+        flow.textContent = entry.flow.message;
+      } else if (entry.flow.status === 'error') {
+        flow.className = 'row-error';
+        flow.textContent = `Đăng nhập: ${entry.flow.message}`;
+      } else if (entry.flow.status === 'retry') {
+        flow.className = 'row-error';
+        flow.textContent = entry.flow.message;
+      } else if (entry.flow.status === 'running') {
+        flow.className = 'row-note';
+        flow.textContent = entry.flow.step || 'Đang đăng nhập...';
+      } else if (entry.flow.status === 'skipped') {
+        flow.className = 'row-note';
+        flow.textContent = entry.flow.message;
+      }
+      if (flow.className) statusCell.append(flow);
+    }
+    row.append(statusCell);
+
+    const cdpCell = document.createElement('td');
+    cdpCell.textContent = entry.cdpPort ? `:${entry.cdpPort}` : '—';
+    row.append(cdpCell);
+
+    const actionCell = document.createElement('td');
+    const actions = document.createElement('div');
+    actions.className = 'row-actions';
+
+    const mcp = document.createElement('button');
+    mcp.type = 'button';
+    mcp.dataset.action = 'queue-mcp';
+    mcp.dataset.name = entry.name;
+    mcp.textContent = 'Copy MCP';
+    mcp.disabled = entry.status !== 'running' || !entry.cdpPort;
+
+    const done = document.createElement('button');
+    done.type = 'button';
+    done.className = 'primary';
+    done.dataset.action = 'queue-complete';
+    done.dataset.name = entry.name;
+    done.dataset.email = entry.email;
+    done.textContent = 'Xong';
+    done.title = 'Đóng Chrome và xoá profile nếu đang bật xoá';
+    done.disabled = entry.status !== 'running';
+
+    actions.append(mcp, done);
+    actionCell.append(actions);
+    row.append(actionCell);
+
+    body.append(row);
   }
 
   $('queue-start').disabled = Boolean(queue?.active);
@@ -462,6 +510,7 @@ async function startQueue() {
     state.config = data.config;
     state.queue = data.queue;
     state.queueSignature = queueSignature(state.queue);
+    queueFilter = 'all';
     renderQueue();
     renderChrome(state.config);
     renderHistory();
@@ -574,6 +623,14 @@ function bindEvents() {
       if (button.dataset.tab === 'config') requestAnimationFrame(renderPreview);
       if (button.dataset.tab === 'accounts') renderQueue();
       if (button.dataset.tab === 'proxy') updateProxySummary();
+    });
+  });
+
+  document.querySelectorAll('.queue-filter').forEach((button) => {
+    button.addEventListener('click', () => {
+      if (!QUEUE_FILTERS[button.dataset.filter]) return;
+      queueFilter = button.dataset.filter;
+      renderQueue();
     });
   });
 

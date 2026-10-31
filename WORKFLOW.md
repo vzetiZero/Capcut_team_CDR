@@ -83,7 +83,8 @@ Hoặc `npm run ui`. `start.bat` mở server và tự mở trình duyệt tới 
 UI chỉ bind loopback, gồm 3 tab:
 
 - **Tài khoản** (mặc định): link team, danh sách `email | mật khẩu`, số luồng, headless,
-  bật/tắt xoá profile, chạy hàng đợi và bảng trạng thái.
+  bật/tắt xoá profile, chạy hàng đợi và mục **Dữ liệu chạy** — bảng kết quả có menu lọc
+  **Tất cả / Thành công / Lỗi / Chờ chạy lại** kèm số lượng, bấm menu để xem danh sách tương ứng.
 - **Proxy**: bật/tắt proxy và dán pool proxy cho các profile mới; lưu bằng **Lưu proxy**.
 - **Cấu hình**: Chrome bundled / `chromePath`, kích thước cửa sổ, scale %, khoảng cách, số cột;
   preview lưới theo màn hình thật. Sửa xong bấm **Lưu cấu hình**.
@@ -112,6 +113,18 @@ Sau khi bấm **Chạy hàng đợi**:
 4. **Dừng nhận tài khoản mới** giữ các cửa sổ đang chạy nhưng không mở thêm.
 5. **Đóng cửa sổ hàng đợi** dừng hàng đợi, đóng mọi cửa sổ và dọn profile tạm.
 6. **Copy MCP** trên dòng đang chạy để lấy cấu hình MCP của đúng profile đó.
+
+Mục **Dữ liệu chạy** chia kết quả thành các menu (bấm để xem danh sách, số trong ngoặc là số lượng):
+
+- **Thành công**: flow đã vào `capcut.com/my-cloud/`, hoặc tài khoản bị bỏ qua vì đã hoàn tất ở lần
+  chạy trước (trạng thái *Đã xong trước*).
+- **Lỗi**: flow dừng vì OTP/captcha, hết thời gian chờ hoặc lỗi khác; Chrome vẫn mở để xử lý thủ công.
+- **Chờ chạy lại**: tài khoản gặp `JoinErrPanelTitle-GWfMxQ` (*Can’t submit request*), Chrome đã đóng
+  và sẽ được chạy lại ở lần nhập danh sách sau.
+- **Tất cả**: toàn bộ tài khoản của lần chạy hiện tại, gồm cả dòng đang chờ/đang chạy/đã đóng.
+
+Danh sách kết quả chỉ sống trong phiên server hiện tại (khởi động lại thì trống). Lịch sử hoàn tất
+trong `data/completed.json` chỉ lưu hash SHA-256 của email, không lưu email/mật khẩu.
 
 ### Đăng nhập tự động (CDP)
 

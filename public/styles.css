@@ -82,6 +82,57 @@ h2 {
   font-weight: 600;
 }
 
+.queue-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.queue-filter {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 8px 12px;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.queue-filter:hover {
+  color: var(--text);
+}
+
+.queue-filter.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.queue-filter .filter-count {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--preview-bg);
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: center;
+}
+
+.queue-filter.active .filter-count {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+}
+
 main {
   width: min(1120px, calc(100% - 40px));
   margin: 20px auto 40px;
