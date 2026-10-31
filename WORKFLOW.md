@@ -66,7 +66,7 @@ vendor/chrome-142.json   (manifest: version, đường dẫn, thời điểm t�
 | `window.width` / `window.height` | Kích thước cửa sổ cố định (mặc định 600x800) |
 | `window.scale` | Scale nội dung, `0.8` = 80% |
 | `window.gap` | Khoảng cách giữa các cửa sổ (px) |
-| `window.columns` | `0` = tự động theo bề rộng màn hình; >0 = số cột cố định |
+| `window.columns` | `0` = tự động chọn lưới vừa màn hình; >0 = số cột cố định |
 
 Định dạng proxy: `http://user:pass@host:port`, `host:port:user:pass`, `https://...`,
 `socks5://host:port` (SOCKS5 không hỗ trợ auth). Proxy HTTP/HTTPS có auth được bridge local
@@ -162,10 +162,16 @@ có cửa sổ.
 
 ### Cách xếp cửa sổ
 
-- Mỗi cửa sổ đúng `width x height` (mặc định 600x800), `scale` nội dung 80%.
-- Số cột tự động = `min(số cửa sổ, số cột vừa bề rộng màn hình)`, nên 2 cửa sổ trên màn hình 1920x1040 sẽ thành 2 cột, không phải 3.
-- Lưới được canh giữa theo vùng làm việc (đã trừ taskbar). Vị trí thực tế được ép lại qua CDP `Browser.setWindowBounds` sau khi Chrome mở.
-- Nếu lưới cao hơn màn hình, hàng dưới dồn về mép dưới; giảm chiều cao/scale hoặc tăng số cột để vừa.
+- Mỗi cửa sổ dùng `width x height` làm kích thước mong muốn (mặc định 600x800), `scale` nội dung 80%.
+- Vị trí/kích thước tính theo DIP (đơn vị Chrome dùng cho `Browser.setWindowBounds`), quy đổi từ
+  vùng làm việc vật lý: `DIP = pixel vật lý / scale`. Ví dụ màn hình 1920x1040, scale 0.8 → vùng đặt
+  cửa sổ 2400x1300 DIP.
+- Server tự chọn số cột/hàng sao cho toàn bộ lưới nằm trong vùng làm việc (đã trừ taskbar) và canh
+  giữa. Không còn dồn hàng xuống đè lên hàng trên.
+- Nếu `width x height` không đủ chỗ, cửa sổ được thu nhỏ theo lưới nhưng không xuống dưới 520x200 DIP
+  (mức tối thiểu Chrome chịu được). Số cửa sổ quá nhiều so với màn hình sẽ chọn lưới thưa hơn.
+- Muốn cố định số cột, đặt `window.columns > 0`. Vị trí thực tế vẫn được ép lại qua CDP
+  `Browser.setWindowBounds` sau khi Chrome mở.
 - Scale 80% làm nội dung 600x800 hiển thị như 750x1000 CSS px — đủ rộng cho form đăng nhập CapCut.
 
 ## 3. Nối chrome-devtools-mcp

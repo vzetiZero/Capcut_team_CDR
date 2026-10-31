@@ -174,6 +174,9 @@ export async function launchProfile(config, profile, options = {}) {
     }
   }
 
+  const startWidth = Number.isFinite(options.position?.width) ? options.position.width : windowConfig.width;
+  const startHeight = Number.isFinite(options.position?.height) ? options.position.height : windowConfig.height;
+
   const args = [
     `--user-data-dir=${profileDir}`,
     `--remote-debugging-port=${cdpPort}`,
@@ -187,7 +190,7 @@ export async function launchProfile(config, profile, options = {}) {
     '--disable-background-timer-throttling',
     '--disable-backgrounding-occluded-windows',
     '--disable-renderer-backgrounding',
-    `--window-size=${windowConfig.width},${windowConfig.height}`,
+    `--window-size=${startWidth},${startHeight}`,
     `--force-device-scale-factor=${windowConfig.scale}`,
     ...(headless ? ['--headless=new', '--hide-scrollbars', '--mute-audio'] : []),
     ...(!headless && options.position && Number.isFinite(options.position.left)

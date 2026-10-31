@@ -154,34 +154,69 @@ function renderPreview() {
     ? Math.min(win.columns, count)
     : Math.min(count, Math.max(1, Math.floor((screen.width + gap) / (win.width + gap))));
   const rows = Math.ceil(count / columns);
-  const gridWidth = columns * win.width + (columns - 1) * gap;
-  const gridHeight = rows * win.height + (rows - 1) * gap;
-  const startX = Math.max(0, Math.round((screen.width - gridWidth) / 2));
-  const startY = Math.max(0, Math.round((screen.height - gridHeight) / 2));
+
+  // Giữ đồng bộ với src/layout.js: Chrome đặt cửa sổ theo DIP (pixel vật lý / scale),
+  // và không thu nhỏ dưới 520x200 DIP.
+  const dip = {
+    width: Math.floor(screen.width / (win.scale > 0 ? win.scale : 1)),
+    height: Math.floor(screen.height / (win.scale > 0 ? win.scale : 1))
+  };
+  let best = null;
+  for (let candidate = 1; candidate <= count; candidate += 1) {
+    if (win.columns > 0 && win.columns !== candidate) continue;
+    const candidateRows = Math.ceil(count / candidate);
+    const cellWidth = (dip.width - (candidate - 1) * gap) / candidate;
+    const cellHeight = (dip.height - (candidateRows - 1) * gap) / candidateRows;
+    if (cellWidth <= 0 || cellHeight <= 0) continue;
+    const width = Math.max(520, Math.min(win.width, Math.floor(cellWidth)));
+    const height = Math.max(200, Math.min(win.height, Math.floor(cellHeight)));
+    if (candidate * width + (candidate - 1) * gap > dip.width) continue;
+    if (candidateRows * height + (candidateRows - 1) * gap > dip.height) continue;
+    const area = width * height;
+    const aspect = Math.abs(width / height - win.width / win.height);
+    if (!best || area > best.area || (area === best.area && aspect < best.aspect)) {
+      best = { columns: candidate, rows: candidateRows, width, height, area, aspect };
+    }
+  }
+  if (!best) {
+    best = {
+      columns,
+      rows,
+      width: Math.max(520, win.width),
+      height: Math.max(200, win.height)
+    };
+  }
+
+  const gridWidth = best.columns * best.width + (best.columns - 1) * gap;
+  const gridHeight = best.rows * best.height + (best.rows - 1) * gap;
+  const startX = Math.max(0, Math.round((dip.width - gridWidth) / 2));
+  const startY = Math.max(0, Math.round((dip.height - gridHeight) / 2));
 
   const maxHeight = 280;
-  const scale = Math.min((preview.clientWidth - 24) / screen.width, (maxHeight - 24) / screen.height);
-  const offsetX = Math.max(0, (preview.clientWidth - screen.width * scale) / 2);
-  preview.style.height = `${Math.min(maxHeight, screen.height * scale + 24)}px`;
+  const scale = Math.min((preview.clientWidth - 24) / dip.width, (maxHeight - 24) / dip.height);
+  const offsetX = Math.max(0, (preview.clientWidth - dip.width * scale) / 2);
+  preview.style.height = `${Math.min(maxHeight, dip.height * scale + 24)}px`;
 
   for (let index = 0; index < count; index += 1) {
-    const column = index % columns;
-    const row = Math.floor(index / columns);
-    const left = Math.min(startX + column * (win.width + gap), Math.max(0, screen.width - win.width));
-    const top = Math.min(startY + row * (win.height + gap), Math.max(0, screen.height - win.height));
+    const column = index % best.columns;
+    const row = Math.floor(index / best.columns);
+    const left = startX + column * (best.width + gap);
+    const top = startY + row * (best.height + gap);
 
     const element = document.createElement('div');
     element.className = 'preview-window';
     element.style.left = `${offsetX + left * scale}px`;
     element.style.top = `${12 + top * scale}px`;
-    element.style.width = `${Math.max(12, win.width * scale)}px`;
-    element.style.height = `${Math.max(12, win.height * scale)}px`;
+    element.style.width = `${Math.max(12, best.width * scale)}px`;
+    element.style.height = `${Math.max(12, best.height * scale)}px`;
     element.textContent = `Cửa sổ ${index + 1}`;
-    element.title = `${win.width}x${win.height} tại ${left},${top}`;
+    element.title = `${best.width}x${best.height} tại ${left},${top}`;
     preview.append(element);
   }
 
-  summary.textContent = `${count} cửa sổ · ${columns} cột × ${rows} hàng · màn hình ${screen.width}×${screen.height}`;
+  summary.textContent =
+    `${count} cửa sổ · ${best.columns} cột × ${best.rows} hàng · cửa sổ ${best.width}×${best.height}`
+    + ` · vùng đặt ${dip.width}×${dip.height} DIP`;
 }
 
 const QUEUE_LABELS = {
