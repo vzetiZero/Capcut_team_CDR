@@ -58,7 +58,7 @@ export async function connectCdp(port, webSocketUrl = null) {
       const timer = setTimeout(() => {
         pending.delete(id);
         reject(new Error(`CDP timeout: ${method}`));
-      }, 8000);
+      }, 15000);
       pending.set(id, { resolve, reject, timer });
       socket.send(JSON.stringify({ id, method, params }));
     });

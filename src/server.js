@@ -146,16 +146,16 @@ function startEntryFlow(entry) {
       console.log(`[flow ${entry.email}] ${step}`);
     }
   })
-    .then(() => {
+    .then((result) => {
       if (entry.flow !== flow) return;
       entry.password = '';
       flow.status = 'success';
-      flow.step = 'Hoàn tất';
-      flow.message = 'Đã đăng nhập và Submit join space.';
+      flow.step = 'Hoàn tất (my-cloud)';
+      flow.message = `Đã đăng nhập, Submit và vào my-cloud: ${result?.url || 'capcut.com/my-cloud'}`;
       flow.finishedAt = Date.now();
       const recorded = markCompleted(entry.email);
       if (recorded) console.log(`[flow] Đã ghi nhận hoàn tất: ${entry.email}`);
-      console.log(`[flow] THÀNH CÔNG: ${entry.email} (CDP :${entry.cdpPort})`);
+      console.log(`[flow] THÀNH CÔNG: ${entry.email} (CDP :${entry.cdpPort}) → ${result?.url || 'my-cloud'}`);
       scheduleAutoClose(entry, flow);
     })
     .catch((err) => {

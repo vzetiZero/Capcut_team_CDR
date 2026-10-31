@@ -118,13 +118,18 @@ Sau khi profile mở link team, server tự điều khiển tab qua CDP:
 3. Chờ `input[name="password"]`, điền mật khẩu, bấm **Sign in**
    (`button.lv_sign_in_panel_wide-sign-in-button`).
 4. Chờ form **Join space** (`.JoinPanel-Y4S5YH`) và bấm **Submit** (`.JoinPanelBtn-Ffvlan`).
-5. In log `THÀNH CÔNG` ra terminal và đánh dấu dòng hàng đợi màu xanh.
+5. Sau Submit, chờ tab chuyển tới URL chứa `capcut.com/my-cloud/` (tối đa 60 giây). Chỉ khi thấy
+   URL này mới in log `THÀNH CÔNG: đã vào my-cloud (...)` và đánh dấu dòng hàng đợi màu xanh.
+   Nếu quá thời gian, dòng chuyển lỗi `Đã bấm Submit nhưng chưa chuyển về my-cloud`.
 6. Nếu bật **Xoá profile sau khi xong**, sau khoảng 2 giây server tự đóng Chrome, xoá profile + MCP
    và mở tài khoản kế tiếp. Tắt tuỳ chọn này thì cửa sổ giữ nguyên để kiểm tra, bấm **Xong** khi xong.
 
 - Tiến trình từng bước hiện ngay trong cột trạng thái; lỗi hiện màu đỏ, Chrome vẫn mở để xử lý thủ công.
 - Nếu CapCut yêu cầu OTP/mã xác minh hoặc captcha, flow dừng và báo lỗi — không tự vượt qua.
-- Nếu tài khoản đã đăng nhập sẵn và form Join space hiện ngay, flow bấm Submit luôn.
+- Nếu tài khoản đã đăng nhập sẵn và form Join space hiện ngay, flow bấm Submit luôn. Nếu tab đã ở
+  `capcut.com/my-cloud/` từ đầu, flow ghi nhận thành công ngay.
+- Chrome của profile tạm được tắt hộp thoại lưu mật khẩu (`credentials_enable_service=false`,
+  `--disable-save-password-bubble`), nên không còn popup “Lưu mật khẩu?”.
 - Mật khẩu chỉ nằm trong RAM; được xoá ngay khi flow kết thúc (thành công hoặc lỗi).
 - Trang CapCut đổi giao diện có thể làm selector lệch; khi đó cập nhật selector trong `src/flow.js`.
 
@@ -219,6 +224,8 @@ Dùng MCP server chrome-devtools-<tên profile>.
 | Flow báo `Hết thời gian chờ trang đăng nhập` | Kiểm tra link team, mạng và proxy; thử tắt headless để xem trang thực tế. |
 | Flow báo yêu cầu OTP/captcha | Xử lý thủ công trong cửa sổ Chrome rồi bấm Xong; flow không vượt xác minh. |
 | Flow báo `Không tìm thấy nút ...` | CapCut đổi giao diện; cập nhật selector trong `src/flow.js`. |
+| Flow báo `Đã bấm Submit nhưng chưa chuyển về my-cloud` | Submit chưa được chấp nhận hoặc CapCut đổi URL đích; mở cửa sổ kiểm tra thủ công rồi chạy lại tài khoản đó. |
+| Flow báo `CapCut từ chối join space — unusual activities` | CapCut chặn tài khoản join space (trang team-invite hiện “Can’t join space”). Không ghi nhận thành công; xử lý tài khoản thủ công rồi chạy lại. |
 | Đóng cửa sổ mà không mở tài khoản kế tiếp | Hàng đợi đã dừng hoặc đã hết danh sách; xem cột trạng thái. |
 | Profile không bị xoá | Windows còn giữ file; server thử lại vài lần. Xem ghi chú lỗi ở cột trạng thái; đóng Chrome rồi xoá thủ công nếu cần. |
 | Proxy không hoạt động | Kiểm tra host/port/user/pass; xem log bridge; thử `ipinfo.io`. |

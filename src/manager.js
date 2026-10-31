@@ -74,6 +74,26 @@ async function applyWindowBounds(cdpPort, bounds) {
   }
 }
 
+function disablePasswordPrompts(profileDir) {
+  const defaultDir = path.join(profileDir, 'Default');
+  fs.mkdirSync(defaultDir, { recursive: true });
+  const file = path.join(defaultDir, 'Preferences');
+  let preferences = {};
+  try {
+    preferences = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    preferences = {};
+  }
+  preferences.credentials_enable_service = false;
+  preferences.credentials_enable_autosignin = false;
+  preferences.profile = {
+    ...(preferences.profile || {}),
+    password_manager_enabled: false,
+    password_manager_leak_detection: false
+  };
+  fs.writeFileSync(file, JSON.stringify(preferences), 'utf8');
+}
+
 function writeMcpConfig(config, name, cdpPort) {
   fs.mkdirSync(config.mcpDir, { recursive: true });
   const mcpConfig = {
@@ -135,6 +155,7 @@ export async function launchProfile(config, profile, options = {}) {
   const headless = Boolean(options.headless);
 
   fs.mkdirSync(profileDir, { recursive: true });
+  disablePasswordPrompts(profileDir);
 
   let bridge = null;
   let proxyArgument = null;
@@ -160,6 +181,8 @@ export async function launchProfile(config, profile, options = {}) {
     '--no-first-run',
     '--no-default-browser-check',
     '--hide-crash-restore-bubble',
+    '--disable-save-password-bubble',
+    '--disable-features=PasswordManagerOnboarding,PasswordLeakDetection',
     '--disable-search-engine-choice-screen',
     '--disable-background-timer-throttling',
     '--disable-backgrounding-occluded-windows',

@@ -1,9 +1,21 @@
 import { createPageSession } from './cdp.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const CLOUD_URL = /capcut\.com\/my-cloud/i;
+
+async function fetchJson(url, timeoutMs = 1500) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+  if (!response.ok) throw new Error(`HTTP ${response.status}: ${url}`);
+  return response.json();
+}
+
+const BLOCKED_TEXT = /can[’']?t join space|unusual activities|không thể tham gia/i;
+const BLOCKED_ERROR = 'CapCut từ chối join space: "Can’t join space — unusual activities" — tài khoản bị đánh dấu, cần xử lý thủ công.';
 
 const DETECT = `(function () {
   const visible = (el) => Boolean(el) && (el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0);
+  if (location.href.includes('/my-cloud')) return 'cloud';
+  if (${BLOCKED_TEXT}.test(document.body ? document.body.innerText : '')) return 'blocked';
   if (visible(document.querySelector('input[autocomplete="one-time-code"], input[name="code"]'))) return 'verify';
   if (visible(document.querySelector('iframe[src*="captcha"], iframe[src*="verify"]'))) return 'captcha';
   if (visible(document.querySelector('button.JoinPanelBtn-Ffvlan, .JoinPanel-Y4S5YH button'))) return 'join';
@@ -53,11 +65,6 @@ const CLICK_SUBMIT = `(function () {
   return true;
 })()`;
 
-const JOIN_GONE = `(function () {
-  const panel = document.querySelector('.JoinPanel-Y4S5YH');
-  return !panel || panel.getClientRects().length === 0;
-})()`;
-
 function fillExpression(name, value) {
   const json = JSON.stringify(value);
   return `(function () {
@@ -85,12 +92,21 @@ async function evaluate(session, expression) {
   }
 }
 
+async function evaluateLoose(session, expression) {
+  try {
+    return await session.evaluate(expression);
+  } catch (error) {
+    if (isContextError(error) || /CDP timeout/i.test(error.message)) return null;
+    throw error;
+  }
+}
+
 async function waitState(session, wanted, timeoutMs, label, log) {
   const deadline = Date.now() + timeoutMs;
   let last = '';
   while (Date.now() < deadline) {
-    const state = await evaluate(session, DETECT);
-    if (state === 'verify' || state === 'captcha') return state;
+    const state = await evaluateLoose(session, DETECT);
+    if (state === 'verify' || state === 'captcha' || state === 'blocked') return state;
     if (state && wanted.includes(state)) return state;
     if (state && state !== last) {
       last = state;
@@ -106,13 +122,56 @@ async function click(session, expression, label) {
   if (!clicked) throw new Error(`Không tìm thấy nút ${label} để bấm.`);
 }
 
-async function waitJoinDone(session, timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await evaluate(session, JOIN_GONE)) return;
-    await sleep(400);
+async function cloudTabUrl(cdpPort) {
+  try {
+    const targets = await fetchJson(`http://127.0.0.1:${cdpPort}/json/list`);
+    const tab = targets.find((target) => target.type === 'page' && CLOUD_URL.test(target.url || ''));
+    return tab ? tab.url : null;
+  } catch {
+    return null;
   }
-  throw new Error('Đã bấm Submit nhưng form Join space vẫn còn — kiểm tra thủ công.');
+}
+
+async function waitCloud(cdpPort, session, timeoutMs, log) {
+  const deadline = Date.now() + timeoutMs;
+  const probe = `(function () {
+    return {
+      href: location.href,
+      blocked: ${BLOCKED_TEXT}.test(document.body ? document.body.innerText : '')
+    };
+  })()`;
+  let last = '';
+  while (Date.now() < deadline) {
+    const info = await evaluateLoose(session, probe);
+    const href = info?.href || '';
+    if (href && href !== last) {
+      last = href;
+      log(`URL hiện tại: ${href}`);
+    }
+    if (CLOUD_URL.test(href)) return href;
+    if (info?.blocked) throw new Error(BLOCKED_ERROR);
+    const tabUrl = await cloudTabUrl(cdpPort);
+    if (tabUrl) {
+      if (tabUrl !== last) log(`URL hiện tại: ${tabUrl}`);
+      return tabUrl;
+    }
+    await sleep(500);
+  }
+  throw new Error('Đã bấm Submit nhưng chưa chuyển về my-cloud — kiểm tra thủ công.');
+}
+
+function ensureNoBlock(state) {
+  if (state === 'verify') throw new Error('CapCut yêu cầu mã xác minh/OTP — cần xử lý thủ công.');
+  if (state === 'captcha') throw new Error('CapCut hiện captcha — cần xử lý thủ công.');
+  if (state === 'blocked') throw new Error(BLOCKED_ERROR);
+}
+
+async function cloudSuccess(session, cdpPort, log) {
+  const url = (await evaluateLoose(session, 'location.href'))
+    || (await cloudTabUrl(cdpPort))
+    || 'capcut.com/my-cloud';
+  log(`THÀNH CÔNG: đã vào my-cloud (${url}).`);
+  return { ok: true, url };
 }
 
 export async function runLoginFlow({ cdpPort, email, password, log = () => {} }) {
@@ -121,23 +180,21 @@ export async function runLoginFlow({ cdpPort, email, password, log = () => {} })
     log('Đang chờ trang đăng nhập...');
     let state = await waitState(
       session,
-      ['email-entry', 'email-input', 'password', 'join'],
+      ['email-entry', 'email-input', 'password', 'join', 'cloud'],
       90000,
       'trang đăng nhập CapCut',
       log
     );
-
-    if (state === 'verify') throw new Error('CapCut yêu cầu mã xác minh/OTP — cần xử lý thủ công.');
-    if (state === 'captcha') throw new Error('CapCut hiện captcha — cần xử lý thủ công.');
+    ensureNoBlock(state);
+    if (state === 'cloud') return cloudSuccess(session, cdpPort, log);
 
     if (state === 'email-entry') {
       await click(session, CLICK_EMAIL_ENTRY, '"Continue with email"');
       log('Đã bấm "Continue with email"');
-      state = await waitState(session, ['email-input', 'password', 'join'], 30000, 'ô nhập email', log);
+      state = await waitState(session, ['email-input', 'password', 'join', 'cloud'], 30000, 'ô nhập email', log);
+      ensureNoBlock(state);
+      if (state === 'cloud') return cloudSuccess(session, cdpPort, log);
     }
-
-    if (state === 'verify') throw new Error('CapCut yêu cầu mã xác minh/OTP — cần xử lý thủ công.');
-    if (state === 'captcha') throw new Error('CapCut hiện captcha — cần xử lý thủ công.');
 
     if (state === 'email-input') {
       const filled = await evaluate(session, fillExpression('username', email));
@@ -146,11 +203,10 @@ export async function runLoginFlow({ cdpPort, email, password, log = () => {} })
       await sleep(250);
       await click(session, CLICK_CONTINUE, 'Continue');
       log('Đã bấm Continue');
-      state = await waitState(session, ['password', 'join'], 45000, 'ô nhập mật khẩu', log);
+      state = await waitState(session, ['password', 'join', 'cloud'], 45000, 'ô nhập mật khẩu', log);
+      ensureNoBlock(state);
+      if (state === 'cloud') return cloudSuccess(session, cdpPort, log);
     }
-
-    if (state === 'verify') throw new Error('CapCut yêu cầu mã xác minh/OTP — cần xử lý thủ công.');
-    if (state === 'captcha') throw new Error('CapCut hiện captcha — cần xử lý thủ công.');
 
     if (state === 'password') {
       const filled = await evaluate(session, fillExpression('password', password || ''));
@@ -159,18 +215,17 @@ export async function runLoginFlow({ cdpPort, email, password, log = () => {} })
       await sleep(250);
       await click(session, CLICK_SIGN_IN, 'Sign in');
       log('Đã bấm Sign in');
-      state = await waitState(session, ['join'], 45000, 'form xác minh Join space', log);
+      state = await waitState(session, ['join', 'cloud'], 45000, 'form xác minh Join space', log);
+      ensureNoBlock(state);
+      if (state === 'cloud') return cloudSuccess(session, cdpPort, log);
     }
-
-    if (state === 'verify') throw new Error('CapCut yêu cầu mã xác minh/OTP — cần xử lý thủ công.');
-    if (state === 'captcha') throw new Error('CapCut hiện captcha — cần xử lý thủ công.');
 
     if (state === 'join') {
       await click(session, CLICK_SUBMIT, 'Submit');
-      log('Đã bấm Submit, chờ xác nhận vào space...');
-      await waitJoinDone(session, 20000);
-      log('THÀNH CÔNG: đã đăng nhập và Submit join space.');
-      return { ok: true };
+      log('Đã bấm Submit, chờ chuyển về my-cloud...');
+      const url = await waitCloud(cdpPort, session, 60000, log);
+      log(`THÀNH CÔNG: đã vào my-cloud (${url}).`);
+      return { ok: true, url };
     }
 
     throw new Error(`Trạng thái trang không xác định: ${state || 'trống'}.`);
