@@ -51,7 +51,7 @@ vendor/chrome-142.json   (manifest: version, đường dẫn, thời điểm t�
 
 | Trường | Ý nghĩa |
 |---|---|
-| `teamUrl` | Link team CapCut mở cho mọi profile |
+| `teamUrls` | Danh sách link team CapCut, mỗi phần tử một link. Chạy hết link 1 với toàn bộ danh sách tài khoản rồi mới chuyển sang link 2 (nếu file cũ chỉ có `teamUrl`, giá trị đó được dùng làm link duy nhất) |
 | `chromePath` | Đường dẫn `chrome.exe`; để trống sẽ tự dò |
 | `useBundledChrome` | `true` = ưu tiên Chrome 142 trong `vendor/` |
 | `uiPort` | Cổng UI local (mặc định `8788`) |
@@ -82,7 +82,7 @@ start.bat
 Hoặc `npm run ui`. `start.bat` mở server và tự mở trình duyệt tới `http://127.0.0.1:8788`.
 UI chỉ bind loopback, gồm 3 tab:
 
-- **Tài khoản** (mặc định): link team, danh sách `email | mật khẩu`, số luồng, headless,
+- **Tài khoản** (mặc định): danh sách link team (mỗi dòng một link), danh sách `email | mật khẩu`, số luồng, headless,
   bật/tắt xoá profile, chạy hàng đợi và mục **Dữ liệu chạy** — bảng kết quả có menu lọc
   **Tất cả / Thành công / Lỗi / Chờ chạy lại** kèm số lượng, bấm menu để xem danh sách tương ứng.
 - **Proxy**: bật/tắt proxy và dán pool proxy cho các profile mới; lưu bằng **Lưu proxy**.
@@ -102,29 +102,45 @@ account2@example.com | matkhau2
 - Tách email và mật khẩu bằng `|` hoặc tab. Phần sau dấu `|` đầu tiên là mật khẩu (giữ nguyên cả ký tự `|` nếu có).
 - Dòng sai định dạng hoặc trùng email sẽ chặn chạy và báo số dòng.
 
+Ô **Danh sách link team** nhận nhiều link, mỗi dòng một link:
+
+```text
+https://www.capcut.com/sv2/team-link-1
+https://www.capcut.com/sv2/team-link-2
+```
+
+- Link được xử lý **lần lượt**: chạy hết toàn bộ danh sách tài khoản cho link 1 (theo đúng thứ tự, tôn
+  trọng số luồng) rồi mới quay lại tài khoản đầu tiên cho link 2, link 3...
+- Mỗi cặp (tài khoản, link) là một dòng riêng trong **Dữ liệu chạy**; nhãn `L1`, `L2`... cho biết dòng
+  thuộc link nào. Dải chip phía trên bảng hiện tiến độ từng link (`Link 2: Đang chạy · 5/20 xong`).
+- Dòng trống, dòng `#`/`//` bị bỏ qua; link sai định dạng chặn chạy và báo số dòng.
+- Profile tạm của link 2 trở đi có hậu tố `-l2`, `-l3`... để không trùng thư mục với link 1.
+
 Sau khi bấm **Chạy hàng đợi**:
 
-1. Server mở tối đa `Số luồng` cửa sổ; mỗi tài khoản vào link team, xếp lưới theo cấu hình.
+1. Server mở tối đa `Số luồng` cửa sổ; mỗi tài khoản vào link team đang chạy, xếp lưới theo cấu hình.
 2. Proxy được gán lần lượt theo thứ tự tài khoản; hết danh sách thì quay vòng. Pool trống hoặc
    tắt proxy thì profile đi bằng IP máy.
 3. Khi đăng nhập/join team xong, bấm **Xong** trên dòng đó (hoặc đóng cửa sổ Chrome). Server đóng
    Chrome, xoá `profiles/<tên>` và `mcp/<tên>.json` nếu bật **Xoá profile sau khi xong**, rồi mở
    tài khoản kế tiếp vào chỗ trống.
-4. **Dừng nhận tài khoản mới** giữ các cửa sổ đang chạy nhưng không mở thêm.
-5. **Đóng cửa sổ hàng đợi** dừng hàng đợi, đóng mọi cửa sổ và dọn profile tạm.
-6. **Copy MCP** trên dòng đang chạy để lấy cấu hình MCP của đúng profile đó.
+4. Hết tài khoản của link hiện tại (không còn dòng chờ/đang chạy) thì server tự đánh dấu link đó **Xong**
+   và đưa toàn bộ tài khoản của link kế tiếp vào hàng đợi, chạy lại từ tài khoản đầu tiên.
+5. **Dừng nhận tài khoản mới** giữ các cửa sổ đang chạy nhưng không mở thêm (kể cả không sang link mới).
+6. **Đóng cửa sổ hàng đợi** dừng hàng đợi, đóng mọi cửa sổ và dọn profile tạm.
+7. **Copy MCP** trên dòng đang chạy để lấy cấu hình MCP của đúng profile đó.
 
 Mục **Dữ liệu chạy** chia kết quả thành các menu (bấm để xem danh sách, số trong ngoặc là số lượng):
 
-- **Thành công**: flow đã vào `capcut.com/my-cloud/`, hoặc tài khoản bị bỏ qua vì đã hoàn tất ở lần
-  chạy trước (trạng thái *Đã xong trước*).
+- **Thành công**: flow đã vào `capcut.com/my-cloud/`, hoặc cặp tài khoản + link bị bỏ qua vì đã hoàn tất
+  ở lần chạy trước (trạng thái *Đã xong trước*).
 - **Lỗi**: flow dừng vì OTP/captcha, hết thời gian chờ hoặc lỗi khác; Chrome vẫn mở để xử lý thủ công.
 - **Chờ chạy lại**: tài khoản gặp `JoinErrPanelTitle-GWfMxQ` (*Can’t submit request*), Chrome đã đóng
   và sẽ được chạy lại ở lần nhập danh sách sau.
-- **Tất cả**: toàn bộ tài khoản của lần chạy hiện tại, gồm cả dòng đang chờ/đang chạy/đã đóng.
+- **Tất cả**: toàn bộ cặp tài khoản + link của lần chạy hiện tại, gồm cả dòng đang chờ/đang chạy/đã đóng.
 
 Danh sách kết quả chỉ sống trong phiên server hiện tại (khởi động lại thì trống). Lịch sử hoàn tất
-trong `data/completed.json` chỉ lưu hash SHA-256 của email, không lưu email/mật khẩu.
+trong `data/completed.json` chỉ lưu hash SHA-256 của **cặp email + link**, không lưu email/mật khẩu.
 
 ### Đăng nhập tự động (CDP)
 
@@ -157,13 +173,16 @@ Sau khi profile mở link team, server tự điều khiển tab qua CDP:
 
 ### Bỏ qua tài khoản đã hoàn tất
 
-- Khi flow thành công, server lưu **hash SHA-256** của email (chuẩn hoá chữ thường) vào
-  `data/completed.json` kèm thời điểm. File không chứa email gốc hay mật khẩu và bị loại khỏi Git.
-- Lần chạy sau, tài khoản đã có trong lịch sử được đánh dấu **Đã xong trước**, không mở Chrome,
-  không chiếm luồng. Tài khoản lỗi/chưa chạy sẽ được chạy lại bình thường.
-- Nếu nhập trùng một tài khoản đã xong, hàng đợi chỉ mở các tài khoản còn lại; nếu tất cả đã xong,
-  UI báo “Tất cả tài khoản đã hoàn tất trước đó”.
+- Khi flow thành công, server lưu **hash SHA-256** của cặp **email + link team** (chuẩn hoá chữ thường)
+  vào `data/completed.json` kèm thời điểm. File không chứa email gốc hay mật khẩu và bị loại khỏi Git.
+- Nhờ vậy mỗi tài khoản vẫn được chạy cho từng link: xong link 1 không làm tài khoản bị bỏ qua ở link 2.
+- Lần chạy sau, cặp đã có trong lịch sử được đánh dấu **Đã xong trước**, không mở Chrome,
+  không chiếm luồng. Cặp lỗi/chưa chạy sẽ được chạy lại bình thường.
+- Nếu nhập trùng link hoặc tài khoản đã xong, hàng đợi chỉ mở các cặp còn lại; nếu tất cả đã xong,
+  UI báo “Tất cả … đã hoàn tất trước đó”.
 - Nút **Xoá lịch sử hoàn tất** (dưới bảng hàng đợi) xoá `data/completed.json` để chạy lại toàn bộ.
+- Lịch sử ghi từ phiên bản trước (chỉ hash email) không khớp khoá mới, nên tài khoản cũ sẽ chạy lại
+  một lần; bấm **Xoá lịch sử hoàn tất** nếu muốn trạng thái sạch.
 
 Profile được đặt tên `acct-<tên>-<hash>`, dùng một lần rồi xoá — **không lưu phiên đăng nhập**.
 Mật khẩu chỉ nằm trong RAM của tiến trình UI và bị xoá khi tài khoản kết thúc; **không** ghi vào
@@ -256,6 +275,8 @@ Dùng MCP server chrome-devtools-<tên profile>.
 | Flow báo `CapCut báo "Can’t join space" và chưa chuyển về my-cloud` | Flow đã bấm OK nhưng tab không vào my-cloud trong 60 giây. Kiểm tra cửa sổ Chrome còn mở, xử lý thủ công rồi chạy lại tài khoản. |
 | Dòng hiện `Chờ chạy lại` / `Tài khoản chưa join được` | CapCut trả panel `Can’t submit request`. Tài khoản không được ghi lịch sử và sẽ chạy lại ở lần chạy hàng đợi kế tiếp. |
 | Đóng cửa sổ mà không mở tài khoản kế tiếp | Hàng đợi đã dừng hoặc đã hết danh sách; xem cột trạng thái. |
+| Chạy mãi không sang link kế tiếp | Link hiện tại còn dòng **Đang chạy** (Chrome còn mở, thường do lỗi cần xử lý thủ công). Bấm **Xong** hoặc đóng cửa sổ Chrome của dòng đó; server sẽ tự chuyển link. |
+| Tài khoản bị **Đã xong trước** ngay ở link mới | Lịch sử lưu theo cặp email + link; nếu link mới trùng link cũ thì cặp đó đã xong. Bấm **Xoá lịch sử hoàn tất** để chạy lại. |
 | Profile không bị xoá | Windows còn giữ file; server thử lại vài lần. Xem ghi chú lỗi ở cột trạng thái; đóng Chrome rồi xoá thủ công nếu cần. |
 | Proxy không hoạt động | Kiểm tra host/port/user/pass; xem log bridge; thử `ipinfo.io`. |
 | SOCKS5 có auth bị từ chối | Đổi sang proxy HTTP/HTTPS. |

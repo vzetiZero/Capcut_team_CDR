@@ -99,7 +99,7 @@ function renderConfig() {
   $('winGap').value = config.window.gap;
   $('winColumns').value = config.window.columns;
 
-  $('teamUrl').value = config.teamUrl || '';
+  $('teamUrlsText').value = config.teamUrlsText || '';
   $('queueConcurrency').value = config.concurrency || 3;
   $('queueHeadless').checked = Boolean(config.headless);
   $('ephemeral').checked = config.ephemeral !== false;
@@ -221,6 +221,7 @@ function renderPreview() {
 
 const QUEUE_LABELS = {
   queued: ['Chờ', ''],
+  waiting: ['Chờ link khác', 'warn'],
   launching: ['Đang mở', 'warn'],
   running: ['Đang chạy', 'ok'],
   closed: ['Đã đóng', ''],
@@ -228,6 +229,13 @@ const QUEUE_LABELS = {
   stopped: ['Đã dừng', 'warn'],
   completed: ['Đã xong trước', 'ok'],
   retry: ['Chờ chạy lại', 'warn']
+};
+
+const LINK_LABELS = {
+  pending: ['Chờ', ''],
+  running: ['Đang chạy', 'ok'],
+  done: ['Xong', 'ok'],
+  stopped: ['Đã dừng', 'warn']
 };
 
 const QUEUE_FILTERS = {
@@ -250,6 +258,8 @@ function queueSignature(queue) {
   if (!queue) return '';
   return JSON.stringify({
     active: queue.active,
+    linkIndex: queue.linkIndex,
+    links: (queue.links || []).map((link) => [link.url, link.status, link.success, link.error, link.retry]),
     counts: queue.counts,
     accounts: queue.accounts.map((entry) => [
       entry.name,
@@ -263,6 +273,33 @@ function queueSignature(queue) {
       entry.flow?.message
     ])
   });
+}
+
+function renderLinkProgress(queue) {
+  const box = $('link-progress');
+  if (!box) return;
+
+  const links = queue?.links || [];
+  if (links.length <= 1) {
+    box.hidden = true;
+    box.replaceChildren();
+    return;
+  }
+
+  box.hidden = false;
+  box.replaceChildren();
+  for (const link of links) {
+    const chip = document.createElement('span');
+    const [label, tone] = LINK_LABELS[link.status] || ['?', ''];
+    chip.className = `link-chip ${tone}`.trim();
+    chip.title = link.url;
+    const parts = [`Link ${link.index + 1}: ${label}`, `${link.success}/${link.total} xong`];
+    if (link.running) parts.push(`${link.running} đang chạy`);
+    if (link.error) parts.push(`${link.error} lỗi`);
+    if (link.retry) parts.push(`${link.retry} chờ chạy lại`);
+    chip.textContent = parts.join(' · ');
+    box.append(chip);
+  }
 }
 
 function queueStatusNote(entry) {
@@ -304,6 +341,7 @@ function renderQueue() {
 
   const accounts = queue?.accounts || [];
   renderQueueFilters(accounts);
+  renderLinkProgress(queue);
 
   if (!queue) {
     $('queue-counts').textContent = '';
@@ -311,8 +349,12 @@ function renderQueue() {
     const counts = queue.counts;
     const skipped = counts.completed ? ` · ${counts.completed} đã xong trước` : '';
     const retry = counts.retry ? ` · ${counts.retry} chờ chạy lại` : '';
+    const total = queue.links?.length || 0;
+    const current = total ? Math.min((queue.linkIndex || 0) + 1, total) : 0;
+    const linkInfo = total ? `link ${current}/${total} · ` : '';
+    const waiting = counts.waiting ? ` · ${counts.waiting} chờ link khác` : '';
     $('queue-counts').textContent =
-      `${counts.running}/${counts.total} đang mở · ${counts.queued} chờ · ${counts.closed} đóng · ${counts.error} lỗi${retry}${skipped}`;
+      `${linkInfo}${counts.running}/${counts.total} đang mở · ${counts.queued} chờ${waiting} · ${counts.closed} đóng · ${counts.error} lỗi${retry}${skipped}`;
   }
 
   if (accounts.length === 0) {
@@ -333,6 +375,13 @@ function renderQueue() {
     const row = document.createElement('tr');
 
     const emailCell = document.createElement('td');
+    if ((queue?.links?.length || 0) > 1 && entry.linkIndex !== undefined) {
+      const tag = document.createElement('span');
+      tag.className = 'link-tag';
+      tag.textContent = `L${entry.linkIndex + 1}`;
+      tag.title = entry.linkUrl || '';
+      emailCell.append(tag);
+    }
     const email = document.createElement('span');
     email.textContent = entry.email;
     emailCell.append(email);
@@ -499,7 +548,7 @@ async function startQueue() {
       method: 'POST',
       body: JSON.stringify({
         accountsText,
-        teamUrl: $('teamUrl').value,
+        teamUrlsText: $('teamUrlsText').value,
         concurrency: Number($('queueConcurrency').value) || 3,
         headless: $('queueHeadless').checked,
         ephemeral: $('ephemeral').checked,
@@ -515,10 +564,11 @@ async function startQueue() {
     renderChrome(state.config);
     renderHistory();
     if (data.queue.counts.queued === 0) {
-      toast(`Tất cả ${data.queue.counts.completed} tài khoản đã hoàn tất trước đó — không mở profile.`);
+      toast(`Tất cả ${data.queue.counts.completed} lượt chạy đã hoàn tất trước đó — không mở profile.`);
     } else {
       const skipped = data.queue.counts.completed ? ` · bỏ qua ${data.queue.counts.completed} đã xong` : '';
-      toast(`Đã bắt đầu ${data.queue.counts.queued} tài khoản · ${data.queue.concurrency} luồng${skipped}.`);
+      const links = data.queue.links?.length || 1;
+      toast(`Đã bắt đầu ${data.queue.counts.queued} tài khoản · ${links} link · ${data.queue.concurrency} luồng${skipped}.`);
     }
   } catch (err) {
     toast(err.message, true);

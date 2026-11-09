@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { accountProfileName, parseAccounts } from './accounts.js';
-import { describeProxy, getChromeInfo, loadConfig, parseProxy, ROOT, saveConfig } from './config.js';
+import { describeProxy, getChromeInfo, loadConfig, parseProxy, parseTeamUrlsText, ROOT, saveConfig } from './config.js';
 import { runLoginFlow } from './flow.js';
 import { clearCompleted, completedCount, isCompleted, loadHistory, markCompleted } from './history.js';
 import { computeLayout, getWorkArea } from './layout.js';
@@ -28,6 +28,9 @@ const queue = {
   pumping: false,
   closeOnStop: false,
   accounts: [],
+  // Mỗi link team chạy hết danh sách tài khoản rồi mới chuyển sang link kế tiếp.
+  links: [],
+  linkIndex: 0,
   concurrency: 3,
   headless: false,
   ephemeral: true,
@@ -36,8 +39,48 @@ const queue = {
   completedAt: null
 };
 
+const ACTIVE_STATUSES = ['queued', 'launching', 'running'];
+
+// Tên profile phải khác nhau giữa các link để thư mục/MCP không đè lên nhau.
+function queueProfileName(email, linkIndex) {
+  const base = accountProfileName(email);
+  return linkIndex === 0 ? base : `${base}-l${linkIndex + 1}`;
+}
+
+function linkEntries(linkIndex) {
+  return queue.accounts.filter((entry) => entry.linkIndex === linkIndex);
+}
+
+function publicLink(link) {
+  const entries = linkEntries(link.index);
+  return {
+    index: link.index,
+    url: link.url,
+    status: link.status,
+    total: entries.length,
+    success: entries.filter((entry) => entry.status === 'completed' || entry.flow?.status === 'success').length,
+    error: entries.filter((entry) => entry.status === 'error' || entry.flow?.status === 'error').length,
+    retry: entries.filter((entry) => entry.status === 'retry' || entry.flow?.status === 'retry').length,
+    running: entries.filter((entry) => entry.status === 'launching' || entry.status === 'running').length,
+    queued: entries.filter((entry) => entry.status === 'queued' || entry.status === 'waiting').length,
+    startedAt: link.startedAt,
+    completedAt: link.completedAt
+  };
+}
+
 function queueCounts() {
-  const counts = { total: 0, queued: 0, launching: 0, running: 0, closed: 0, error: 0, stopped: 0, completed: 0, retry: 0 };
+  const counts = {
+    total: 0,
+    queued: 0,
+    waiting: 0,
+    launching: 0,
+    running: 0,
+    closed: 0,
+    error: 0,
+    stopped: 0,
+    completed: 0,
+    retry: 0
+  };
   for (const entry of queue.accounts) {
     counts.total += 1;
     if (counts[entry.status] !== undefined) counts[entry.status] += 1;
@@ -51,7 +94,9 @@ function publicQueue() {
     concurrency: queue.concurrency,
     headless: queue.headless,
     ephemeral: queue.ephemeral,
-    teamUrl: queue.teamUrl,
+    teamUrl: queue.links[0]?.url || queue.teamUrl,
+    linkIndex: queue.linkIndex,
+    links: queue.links.map(publicLink),
     startedAt: queue.startedAt,
     completedAt: queue.completedAt,
     counts: queueCounts(),
@@ -59,6 +104,8 @@ function publicQueue() {
       id: entry.id,
       email: entry.email,
       name: entry.name,
+      linkIndex: entry.linkIndex,
+      linkUrl: entry.linkUrl,
       status: entry.status,
       error: entry.error || null,
       proxy: entry.proxyLabel || 'IP máy',
@@ -141,6 +188,7 @@ function startEntryFlow(entry) {
     cdpPort: entry.cdpPort,
     email: entry.email,
     password: entry.password,
+    teamUrl: entry.linkUrl || queue.teamUrl,
     log: (step) => {
       if (entry.flow === flow) flow.step = step;
       console.log(`[flow ${entry.email}] ${step}`);
@@ -153,9 +201,9 @@ function startEntryFlow(entry) {
       flow.step = 'Hoàn tất (my-cloud)';
       flow.message = `Đã đăng nhập, Submit và vào my-cloud: ${result?.url || 'capcut.com/my-cloud'}`;
       flow.finishedAt = Date.now();
-      const recorded = markCompleted(entry.email);
-      if (recorded) console.log(`[flow] Đã ghi nhận hoàn tất: ${entry.email}`);
-      console.log(`[flow] THÀNH CÔNG: ${entry.email} (CDP :${entry.cdpPort}) → ${result?.url || 'my-cloud'}`);
+      const recorded = markCompleted(entry.email, entry.linkUrl);
+      if (recorded) console.log(`[flow] Đã ghi nhận hoàn tất: ${entry.email} (link ${entry.linkIndex + 1})`);
+      console.log(`[flow] THÀNH CÔNG: ${entry.email} (link ${entry.linkIndex + 1}, CDP :${entry.cdpPort}) → ${result?.url || 'my-cloud'}`);
       scheduleAutoClose(entry, flow);
     })
     .catch((err) => {
@@ -234,7 +282,7 @@ async function launchQueueEntry(entry, config) {
   };
 
   const handle = await launchProfile(config, profile, {
-    startUrl: queue.teamUrl,
+    startUrl: entry.linkUrl || queue.teamUrl,
     position,
     headless: queue.headless
   });
@@ -308,6 +356,43 @@ function reconcileQueue() {
 
   if (!queue.active) return;
 
+  // Chuyển link: link hiện tại không còn tài khoản chờ/đang chạy thì đánh dấu xong và
+  // đưa toàn bộ tài khoản của link kế tiếp vào hàng đợi (chạy lại từ đầu danh sách).
+  while (queue.linkIndex < queue.links.length) {
+    const active = queue.accounts.filter(
+      (entry) => entry.linkIndex === queue.linkIndex && ACTIVE_STATUSES.includes(entry.status)
+    );
+    if (active.length > 0) break;
+
+    const current = queue.links[queue.linkIndex];
+    if (current && current.status !== 'done') {
+      current.status = 'done';
+      current.completedAt = Date.now();
+      const stats = publicLink(current);
+      console.log(
+        `[queue] Xong link ${current.index + 1}/${queue.links.length}: `
+        + `${stats.success}/${stats.total} thành công, ${stats.error} lỗi, ${stats.retry} chờ chạy lại.`
+      );
+    }
+
+    const nextIndex = queue.linkIndex + 1;
+    if (nextIndex >= queue.links.length) {
+      queue.active = false;
+      queue.completedAt = Date.now();
+      console.log('[queue] Đã chạy xong tất cả link team.');
+      return;
+    }
+
+    const next = queue.links[nextIndex];
+    queue.linkIndex = nextIndex;
+    next.status = 'running';
+    next.startedAt = Date.now();
+    for (const entry of queue.accounts) {
+      if (entry.linkIndex === nextIndex && entry.status === 'waiting') entry.status = 'queued';
+    }
+    console.log(`[queue] Chuyển sang link ${nextIndex + 1}/${queue.links.length}: ${next.url}`);
+  }
+
   const activeCount = queue.accounts.filter(
     (entry) => entry.status === 'launching' || entry.status === 'running'
   ).length;
@@ -351,7 +436,9 @@ function publicConfig(config) {
     uiPort: config.uiPort,
     basePort: config.basePort,
     startUrl: config.startUrl,
-    teamUrl: config.startUrl,
+    teamUrl: config.teamUrls[0] || '',
+    teamUrls: config.teamUrls,
+    teamUrlsText: config.teamUrlsText,
     concurrency: config.concurrency,
     headless: config.headless,
     ephemeral: config.ephemeral,
@@ -433,10 +520,25 @@ async function handle(request, response) {
       return;
     }
 
+    const linksInput = body.teamUrlsText !== undefined ? body.teamUrlsText : body.teamUrl;
+    const parsedLinks = parseTeamUrlsText(linksInput);
+    if (parsedLinks.errors.length) {
+      sendJson(response, 400, {
+        ok: false,
+        error: `Link team dòng ${parsedLinks.errors[0].line}: ${parsedLinks.errors[0].message}`,
+        details: parsedLinks.errors
+      });
+      return;
+    }
+    if (parsedLinks.urls.length === 0) {
+      sendJson(response, 400, { ok: false, error: 'Chưa có link team nào. Nhập ít nhất một link team.' });
+      return;
+    }
+
     let updated;
     try {
       updated = saveConfig({
-        teamUrl: body.teamUrl,
+        teamUrlsText: parsedLinks.urls.join('\n'),
         concurrency: body.concurrency,
         headless: Boolean(body.headless),
         ephemeral: body.ephemeral,
@@ -457,45 +559,69 @@ async function handle(request, response) {
     }
 
     const history = loadHistory();
-    let proxyIndex = 0;
-    queue.accounts = parsed.accounts.map((account) => {
-      const done = isCompleted(account.email, history);
-      const proxy = done || proxyPool.length === 0
-        ? null
-        : proxyPool[proxyIndex++ % proxyPool.length];
-      return {
-        id: accountProfileName(account.email),
-        name: accountProfileName(account.email),
-        email: account.email,
-        password: done ? '' : account.password,
-        proxy,
-        proxyLabel: describeProxy(proxy),
-        status: done ? 'completed' : 'queued',
-        slot: null,
-        error: null,
-        cdpPort: null,
-        mcpFile: null,
-        position: null,
-        browser: null,
-        headless: updated.headless,
-        profileDeleted: false,
-        cleanupStarted: false,
-        cleanupError: null,
-        flow: done
-          ? {
-              status: 'completed',
-              step: null,
-              message: 'Đã hoàn tất ở lần chạy trước.',
-              startedAt: null,
-              finishedAt: null
-            }
-          : null,
-        startedAt: null,
-        closedAt: null
-      };
-    });
+    queue.links = updated.teamUrls.map((url, index) => ({
+      index,
+      url,
+      status: index === 0 ? 'running' : 'pending',
+      startedAt: index === 0 ? Date.now() : null,
+      completedAt: null
+    }));
+    queue.linkIndex = 0;
 
-    const pending = queue.accounts.some((entry) => entry.status === 'queued');
+    queue.accounts = [];
+    for (const link of queue.links) {
+      let proxyIndex = 0;
+      for (const account of parsed.accounts) {
+        const done = isCompleted(account.email, link.url, history);
+        const proxy = done || proxyPool.length === 0
+          ? null
+          : proxyPool[proxyIndex++ % proxyPool.length];
+        const name = queueProfileName(account.email, link.index);
+        queue.accounts.push({
+          id: name,
+          name,
+          email: account.email,
+          linkIndex: link.index,
+          linkUrl: link.url,
+          password: done ? '' : account.password,
+          proxy,
+          proxyLabel: describeProxy(proxy),
+          status: done ? 'completed' : (link.index === 0 ? 'queued' : 'waiting'),
+          slot: null,
+          error: null,
+          cdpPort: null,
+          mcpFile: null,
+          position: null,
+          browser: null,
+          headless: updated.headless,
+          profileDeleted: false,
+          cleanupStarted: false,
+          cleanupError: null,
+          flow: done
+            ? {
+                status: 'completed',
+                step: null,
+                message: 'Đã hoàn tất link này ở lần chạy trước.',
+                startedAt: null,
+                finishedAt: null
+              }
+            : null,
+          startedAt: null,
+          closedAt: null
+        });
+      }
+    }
+
+    const pending = queue.accounts.some(
+      (entry) => entry.status === 'queued' || entry.status === 'waiting'
+    );
+    if (!pending) {
+      // Tất cả cặp tài khoản + link đã xong trước đó: không có gì để chạy.
+      for (const link of queue.links) {
+        link.status = 'done';
+        link.completedAt = Date.now();
+      }
+    }
     queue.active = pending;
     queue.closeOnStop = false;
     queue.concurrency = updated.concurrency;
@@ -505,7 +631,7 @@ async function handle(request, response) {
     queue.startedAt = Date.now();
     queue.completedAt = pending ? null : Date.now();
 
-    if (pending) pumpQueue();
+    if (pending) reconcileQueue();
     sendJson(response, 200, {
       ok: true,
       queue: publicQueue(),
@@ -525,8 +651,17 @@ async function handle(request, response) {
     queue.active = false;
     queue.closeOnStop = Boolean(body.close);
     for (const entry of queue.accounts) {
-      if (entry.status === 'queued') {
+      if (entry.status === 'queued' || entry.status === 'waiting') {
         finishQueueEntry(entry, 'stopped');
+      }
+    }
+    for (const link of queue.links) {
+      if (link.status === 'pending') link.status = 'stopped';
+      if (link.status === 'running' && !queue.accounts.some(
+        (entry) => entry.linkIndex === link.index && (entry.status === 'launching' || entry.status === 'running')
+      )) {
+        link.status = 'done';
+        link.completedAt = link.completedAt || Date.now();
       }
     }
     if (queue.closeOnStop) {

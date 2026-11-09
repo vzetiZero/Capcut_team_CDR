@@ -245,6 +245,50 @@ input[type="checkbox"] {
   font-size: 11.5px;
 }
 
+.link-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 12px;
+}
+
+.link-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #eef2f7;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.link-chip.ok {
+  background: #ecfdf3;
+  color: var(--ok);
+  border-color: #abefc6;
+}
+
+.link-chip.warn {
+  background: #fffaeb;
+  color: var(--warn);
+  border-color: #fedf89;
+}
+
+.link-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #eef2f7;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
 .row-note.ok {
   color: var(--ok);
   font-weight: 600;

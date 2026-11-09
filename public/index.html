@@ -28,8 +28,13 @@
             <h2>Nhập tài khoản</h2>
           </div>
           <label>
-            Link team
-            <input type="text" id="teamUrl" placeholder="https://www.capcut.com/sv2/..." spellcheck="false" />
+            Danh sách link team (mỗi dòng 1 link — chạy hết link 1 rồi mới sang link 2)
+            <textarea
+              id="teamUrlsText"
+              rows="4"
+              spellcheck="false"
+              placeholder="https://www.capcut.com/sv2/team-link-1&#10;https://www.capcut.com/sv2/team-link-2"
+            ></textarea>
           </label>
           <label>
             Danh sách tài khoản (mỗi dòng: email | mật khẩu)
@@ -41,8 +46,10 @@
             ></textarea>
           </label>
           <p class="hint">
-            Mật khẩu chỉ giữ trong RAM của tiến trình UI, không ghi vào <code>profiles.json</code>.
-            Mỗi email mở một profile Chrome tạm và bị xoá sau khi kết thúc tài khoản — không lưu phiên.
+            Mỗi link team chạy lần lượt với <strong>toàn bộ</strong> danh sách tài khoản: xong hết tài khoản
+            của link 1 mới bắt đầu lại từ tài khoản đầu tiên cho link 2. Mật khẩu chỉ giữ trong RAM của
+            tiến trình UI, không ghi vào <code>profiles.json</code>. Mỗi email mở một profile Chrome tạm và
+            bị xoá sau khi kết thúc tài khoản — không lưu phiên.
           </p>
         </section>
 
@@ -86,6 +93,7 @@
             <h2>Dữ liệu chạy</h2>
             <span id="queue-counts" class="hint"></span>
           </div>
+          <div id="link-progress" class="link-progress" hidden></div>
           <div id="queue-filters" class="queue-filters" role="tablist" aria-label="Lọc dữ liệu chạy">
             <button class="queue-filter active" data-filter="all" type="button" role="tab">
               Tất cả <span class="filter-count">0</span>
@@ -119,11 +127,12 @@
             <button id="clear-history" type="button">Xoá lịch sử hoàn tất</button>
           </div>
           <p class="hint">
-            Bấm từng menu để xem danh sách: <strong>Thành công</strong> là tài khoản đã vào
-            <code>capcut.com/my-cloud/</code> (gồm cả tài khoản bỏ qua vì đã xong trước đó),
+            Bấm từng menu để xem danh sách: <strong>Thành công</strong> là lượt chạy đã vào
+            <code>capcut.com/my-cloud/</code> (gồm cả lượt bỏ qua vì đã xong trước đó),
             <strong>Lỗi</strong> là flow dừng vì OTP/captcha hoặc lỗi khác, <strong>Chờ chạy lại</strong> là
-            tài khoản bị <strong>Can’t submit request</strong> và sẽ chạy lại ở lần sau. Danh sách chỉ giữ
-            trong phiên server hiện tại; lịch sử hoàn tất chỉ lưu hash email trên máy này.
+            tài khoản bị <strong>Can’t submit request</strong> và sẽ chạy lại ở lần sau. Nhãn <code>L1</code>,
+            <code>L2</code>… cho biết dòng thuộc link team nào. Danh sách chỉ giữ trong phiên server hiện
+            tại; lịch sử hoàn tất chỉ lưu hash cặp email + link trên máy này.
           </p>
         </section>
       </section>
@@ -214,7 +223,7 @@
       <p class="hint">
         Profile Chrome của hàng đợi là tạm: bấm <strong>Xong</strong> hoặc đóng cửa sổ thì Chrome tắt và
         thư mục profile bị xoá (khi bật “Xoá profile sau khi xong”). Mỗi profile đang chạy có một file
-        MCP riêng trong <code>mcp/</code>. Tài khoản đã hoàn tất được lưu bằng hash email trong
+        MCP riêng trong <code>mcp/</code>. Mỗi cặp tài khoản + link đã hoàn tất được lưu bằng hash trong
         <code>data/completed.json</code> và tự bỏ qua ở lần chạy sau.
       </p>
     </footer>

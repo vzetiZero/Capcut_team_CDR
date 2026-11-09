@@ -6,8 +6,11 @@ import { ROOT } from './config.js';
 const HISTORY_PATH = path.join(ROOT, 'data', 'completed.json');
 const VERSION = 1;
 
-export function hashEmail(email) {
-  return crypto.createHash('sha256').update(String(email).trim().toLowerCase()).digest('hex');
+// Một tài khoản có thể phải join nhiều link team, nên lịch sử được tính theo cặp
+// (email + link): xong link 1 vẫn phải chạy tiếp cho link 2.
+export function hashEntry(email, link = '') {
+  const key = `${String(email).trim().toLowerCase()}\n${String(link || '').trim()}`;
+  return crypto.createHash('sha256').update(key).digest('hex');
 }
 
 function loadRaw() {
@@ -24,14 +27,14 @@ export function loadHistory() {
   return loadRaw();
 }
 
-export function isCompleted(email, history = null) {
+export function isCompleted(email, link = '', history = null) {
   const data = history || loadRaw();
-  return Boolean(data.completed[hashEmail(email)]);
+  return Boolean(data.completed[hashEntry(email, link)]);
 }
 
-export function markCompleted(email) {
+export function markCompleted(email, link = '') {
   const data = loadRaw();
-  const hash = hashEmail(email);
+  const hash = hashEntry(email, link);
   if (data.completed[hash]) return false;
   data.completed[hash] = { at: Date.now() };
   fs.mkdirSync(path.dirname(HISTORY_PATH), { recursive: true });

@@ -40,6 +40,29 @@ export function normalizeTeamUrl(value) {
   return url.toString();
 }
 
+function isIgnoredLine(line) {
+  return !line || line.startsWith('#') || line.startsWith('//');
+}
+
+// Mỗi dòng một link team; link đầu tiên chạy hết danh sách tài khoản rồi mới sang link kế tiếp.
+export function parseTeamUrlsText(text) {
+  const urls = [];
+  const errors = [];
+  String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .forEach((rawLine, index) => {
+      const line = rawLine.trim();
+      if (isIgnoredLine(line)) return;
+      try {
+        urls.push(normalizeTeamUrl(line));
+      } catch (err) {
+        errors.push({ line: index + 1, message: err.message });
+      }
+    });
+  return { urls, errors };
+}
+
 function normalizeWindow(raw) {
   const input = raw && typeof raw === 'object' ? raw : {};
   let scale = clampNumber(input.scale, 0.8, 0.5, 2);
@@ -165,6 +188,32 @@ export function getChromeInfo(config) {
   };
 }
 
+function loadTeamUrls(raw) {
+  const list = [];
+  if (Array.isArray(raw.teamUrls)) {
+    for (const item of raw.teamUrls) {
+      const line = String(item || '').trim();
+      if (isIgnoredLine(line)) continue;
+      try {
+        list.push(normalizeTeamUrl(line));
+      } catch {
+        // Bỏ qua link hỏng trong file cấu hình; UI sẽ hiện lại link hợp lệ.
+      }
+    }
+  }
+  if (list.length === 0) {
+    const legacy = String(raw.teamUrl || raw.startUrl || '').trim();
+    if (!isIgnoredLine(legacy)) {
+      try {
+        list.push(normalizeTeamUrl(legacy));
+      } catch {
+        // Không có link hợp lệ.
+      }
+    }
+  }
+  return list;
+}
+
 export function loadConfig() {
   let text = null;
   try {
@@ -183,6 +232,7 @@ export function loadConfig() {
   }
 
   const proxies = Array.isArray(raw.proxies) ? raw.proxies.map((line) => String(line).trim()).filter(Boolean) : [];
+  const teamUrls = loadTeamUrls(raw);
 
   return {
     root: ROOT,
@@ -192,7 +242,9 @@ export function loadConfig() {
     mcpDir: path.resolve(ROOT, raw.mcpDir || 'mcp'),
     basePort: Number(raw.basePort) || 9300,
     uiPort: Number(raw.uiPort) || 8788,
-    startUrl: String(raw.teamUrl || raw.startUrl || 'about:blank').trim(),
+    teamUrls,
+    teamUrlsText: teamUrls.join('\n'),
+    startUrl: teamUrls[0] || 'about:blank',
     concurrency: normalizeConcurrency(raw.concurrency),
     headless: Boolean(raw.headless),
     ephemeral: raw.ephemeral !== false,
@@ -217,9 +269,17 @@ export function saveConfig(patch = {}) {
   if (typeof patch.useBundledChrome === 'boolean') raw.useBundledChrome = patch.useBundledChrome;
   if (typeof patch.chromePath === 'string') raw.chromePath = patch.chromePath.trim();
   if (patch.uiPort !== undefined) raw.uiPort = Number(patch.uiPort) || raw.uiPort || 8788;
-  if (patch.teamUrl !== undefined) {
-    raw.teamUrl = normalizeTeamUrl(patch.teamUrl);
+  if (patch.teamUrlsText !== undefined) {
+    const parsed = parseTeamUrlsText(patch.teamUrlsText);
+    if (parsed.errors.length) throw new Error(`Link team dòng ${parsed.errors[0].line}: ${parsed.errors[0].message}`);
+    raw.teamUrls = parsed.urls;
     delete raw.startUrl;
+    if (parsed.urls.length) raw.teamUrl = parsed.urls[0];
+    else delete raw.teamUrl;
+  } else if (patch.teamUrl !== undefined) {
+    raw.teamUrls = [normalizeTeamUrl(patch.teamUrl)];
+    delete raw.startUrl;
+    raw.teamUrl = raw.teamUrls[0];
   }
   if (patch.concurrency !== undefined) raw.concurrency = normalizeConcurrency(patch.concurrency);
   if (typeof patch.headless === 'boolean') raw.headless = patch.headless;
