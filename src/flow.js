@@ -1,7 +1,16 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { createPageSession } from './cdp.js';
+import { ROOT } from './config.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const CLOUD_URL = /^https?:\/\/(?:www\.)?capcut\.com\/my-cloud\//i;
+const DEBUG_DIR = path.join(ROOT, 'data', 'debug');
+
+// CapCut hiện lỗi sai mật khẩu/tài khoản ngay trên panel đăng nhập; nhận ra sớm để báo đúng
+// nguyên nhân thay vì chờ hết 45 giây rồi báo "hết thời gian chờ".
+const LOGIN_ERROR_PATTERN =
+  '/(incorrect (?:email or )?password|wrong password|invalid (?:email or )?password|password is incorrect|too many (?:attempts|requests|tries)|something went wrong|unknown error|sai m[aậ]t kh[aẩ]u|kh[oô]ng đ[uú]ng|qu[aá] nhi[eề]u l[aầ]n|密码错误|账号或密码错误|尝试次数过多|操作过于频繁)/i';
 
 async function fetchJson(url, timeoutMs = 1500) {
   const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
@@ -17,24 +26,45 @@ function joinRetryError() {
   return error;
 }
 
+// CapCut đổi hậu tố hash của class sau mỗi lần deploy (JoinPanel-Y4S5YH, JoinPanelBtn-Ffvlan...),
+// nên ngoài selector cũ còn dò theo tiền tố class và theo chữ hiển thị trên nút.
 const DETECT = `(function () {
   const visible = (el) => Boolean(el) && (el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0);
+  const pageText = () => ((document.body && document.body.innerText) || '').replace(/\\s+/g, ' ');
   if (/^https?:\\/\\/(?:www\\.)?capcut\\.com\\/my-cloud\\//i.test(location.href)) return 'cloud';
-  if (visible(document.querySelector('.JoinErrPanelTitle-GWfMxQ'))) return 'join-retry';
-  if (visible(document.querySelector('input[autocomplete="one-time-code"], input[name="code"]'))) return 'verify';
-  if (visible(document.querySelector('iframe[src*="captcha"], iframe[src*="verify"]'))) return 'captcha';
-  if (visible(document.querySelector('button.JoinPanelBtn-Ffvlan, .JoinPanel-Y4S5YH button'))) return 'join';
-  if (visible(document.querySelector('input[name="password"]'))) return 'password';
-  if (visible(document.querySelector('input[name="username"]'))) return 'email-input';
+  if (visible(document.querySelector('.JoinErrPanelTitle-GWfMxQ, [class*="JoinErrPanel"]'))) return 'join-retry';
+  if (visible(document.querySelector('input[autocomplete="one-time-code"], input[name="code"], input[name="otp"]'))) return 'verify';
+  if (visible(document.querySelector('iframe[src*="captcha"], iframe[src*="verify"], iframe[src*="secsdk"], [class*="captcha"], [id*="captcha"]'))) return 'captcha';
+  if (${LOGIN_ERROR_PATTERN}.test(pageText())) return 'login-error';
+  if (visible(document.querySelector('button.JoinPanelBtn-Ffvlan, .JoinPanel-Y4S5YH button, [class*="JoinPanel"] button, [class*="JoinPanel"] [role="button"]'))) return 'join';
+  if (visible(document.querySelector('input[name="password"], input[type="password"]'))) return 'password';
+  if (visible(document.querySelector('input[name="username"], input[name="email"], input[type="email"]'))) return 'email-input';
   const label = [...document.querySelectorAll('span.lv_third_part_sign_in_expand-label')]
     .find((el) => el.textContent.trim().toLowerCase().includes('continue with email'));
   if (visible(label)) return 'email-entry';
+  const mailButton = [...document.querySelectorAll('button, [role="button"], a')]
+    .find((el) => visible(el) && /^continue with email$/i.test((el.textContent || '').trim()));
+  if (mailButton) return 'email-entry';
   return '';
 })()`;
 
+// Ảnh chụp trạng thái trang lúc lỗi: URL, tiêu đề, chữ đang hiển thị và state nhận diện.
+const PAGE_INFO = `(function () {
+  const text = ((document.body && document.body.innerText) || '').replace(/\\s+/g, ' ').trim();
+  return {
+    state: ${DETECT},
+    href: location.href,
+    title: document.title,
+    text: text.slice(0, 500)
+  };
+})()`;
+
 const CLICK_EMAIL_ENTRY = `(function () {
+  const visible = (el) => Boolean(el) && (el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0);
   const label = [...document.querySelectorAll('span.lv_third_part_sign_in_expand-label')]
-    .find((el) => el.textContent.trim().toLowerCase().includes('continue with email'));
+    .find((el) => el.textContent.trim().toLowerCase().includes('continue with email'))
+    || [...document.querySelectorAll('button, [role="button"], a')]
+      .find((el) => visible(el) && /^continue with email$/i.test((el.textContent || '').trim()));
   if (!label) return false;
   const target = label.closest('button, [role="button"], a') || label;
   target.click();
@@ -63,8 +93,12 @@ const CLICK_SIGN_IN = `(function () {
 
 const CLICK_SUBMIT = `(function () {
   const visible = (el) => Boolean(el) && (el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0);
-  const button = [...document.querySelectorAll('button.JoinPanelBtn-Ffvlan, .JoinPanel-Y4S5YH button')]
+  const panelButton = [...document.querySelectorAll('button.JoinPanelBtn-Ffvlan, .JoinPanel-Y4S5YH button, [class*="JoinPanel"] button, [class*="JoinPanel"] [role="button"]')]
     .find(visible);
+  const byText = [...document.querySelectorAll('button, [role="button"]')]
+    .filter(visible)
+    .find((el) => /^(submit|join|join space|tham gia|gửi yêu cầu)$/i.test((el.textContent || '').trim()));
+  const button = panelButton || byText;
   if (!button) return false;
   button.click();
   return true;
@@ -106,12 +140,28 @@ async function evaluateLoose(session, expression) {
   }
 }
 
+async function pageSnapshot(session) {
+  const info = await evaluateLoose(session, PAGE_INFO);
+  return info && typeof info === 'object' ? info : null;
+}
+
+function timeoutError(label, snapshot, lastState) {
+  const parts = [];
+  if (snapshot?.href) parts.push(`URL: ${snapshot.href}`);
+  const state = snapshot?.state || lastState;
+  if (state) parts.push(`trạng thái: ${state}`);
+  if (snapshot?.title) parts.push(`tiêu đề: ${snapshot.title}`);
+  if (snapshot?.text) parts.push(`trang: "${snapshot.text.slice(0, 200)}"`);
+  const details = parts.length ? ` (${parts.join(' · ')})` : '';
+  return new Error(`Hết thời gian chờ ${label}.${details}`);
+}
+
 async function waitState(session, wanted, timeoutMs, label, log) {
   const deadline = Date.now() + timeoutMs;
   let last = '';
   while (Date.now() < deadline) {
     const state = await evaluateLoose(session, DETECT);
-    if (state === 'verify' || state === 'captcha' || state === 'join-retry') return state;
+    if (['verify', 'captcha', 'join-retry', 'login-error'].includes(state)) return state;
     if (state && wanted.includes(state)) return state;
     if (state && state !== last) {
       last = state;
@@ -119,7 +169,14 @@ async function waitState(session, wanted, timeoutMs, label, log) {
     }
     await sleep(400);
   }
-  throw new Error(`Hết thời gian chờ ${label}.`);
+
+  const snapshot = await pageSnapshot(session);
+  if (snapshot) {
+    log(`Hết giờ chờ ${label}: ${snapshot.href || '(không rõ URL)'}`
+      + `${snapshot.state ? ` · trạng thái ${snapshot.state}` : ''}`
+      + `${snapshot.text ? ` · "${snapshot.text.slice(0, 160)}"` : ''}`);
+  }
+  throw timeoutError(label, snapshot, last);
 }
 
 async function click(session, expression, label) {
@@ -184,10 +241,38 @@ async function waitCloud(cdpPort, session, timeoutMs, log) {
     : 'Đã bấm Submit nhưng chưa chuyển về my-cloud — kiểm tra thủ công.');
 }
 
-function ensureNoBlock(state) {
+async function ensureNoBlock(session, state) {
   if (state === 'verify') throw new Error('CapCut yêu cầu mã xác minh/OTP — cần xử lý thủ công.');
   if (state === 'captcha') throw new Error('CapCut hiện captcha — cần xử lý thủ công.');
   if (state === 'join-retry') throw joinRetryError();
+  if (state === 'login-error') {
+    const snapshot = await pageSnapshot(session);
+    const detail = snapshot?.text
+      ? ` — trang báo: "${snapshot.text.slice(0, 220)}"`
+      : ' (không đọc được nội dung trang)';
+    throw new Error(`CapCut báo lỗi đăng nhập${detail}`);
+  }
+}
+
+// Lưu ảnh chụp + nội dung trang lúc lỗi để xem lại sau khi profile tạm đã bị xoá.
+async function saveFailureArtifacts(session, error) {
+  let base = null;
+  try {
+    const snapshot = await pageSnapshot(session);
+    fs.mkdirSync(DEBUG_DIR, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    base = path.join(DEBUG_DIR, `fail-${stamp}`);
+    fs.writeFileSync(
+      `${base}.json`,
+      `${JSON.stringify({ at: new Date().toISOString(), error: error.message, page: snapshot || null }, null, 2)}\n`,
+      'utf8'
+    );
+    const png = await session.screenshot?.();
+    if (png) fs.writeFileSync(`${base}.png`, Buffer.from(png, 'base64'));
+    return base;
+  } catch {
+    return base;
+  }
 }
 
 async function cloudSuccess(session, cdpPort, log) {
@@ -198,9 +283,20 @@ async function cloudSuccess(session, cdpPort, log) {
   return { ok: true, url };
 }
 
-export async function runLoginFlow({ cdpPort, email, password, log = () => {} }) {
-  const session = await createPageSession(cdpPort);
+export async function runLoginFlow({ cdpPort, email, password, teamUrl = '', log = () => {} }) {
+  const session = await createPageSession(cdpPort, { startUrl: teamUrl });
   try {
+    // Chrome mở kèm link team, nhưng nếu tab vẫn là about:blank (link không mở được,
+    // Chrome tạo tab trống) thì tự điều hướng lại để flow không chờ vô ích.
+    if (teamUrl) {
+      const href = await evaluateLoose(session, 'location.href');
+      if (!href || href === 'about:blank') {
+        log(`Tab đang trống — mở lại link team: ${teamUrl}`);
+        await session.navigate(teamUrl);
+        await sleep(600);
+      }
+    }
+
     log('Đang chờ trang đăng nhập...');
     let state = await waitState(
       session,
@@ -209,14 +305,14 @@ export async function runLoginFlow({ cdpPort, email, password, log = () => {} })
       'trang đăng nhập CapCut',
       log
     );
-    ensureNoBlock(state);
+    await ensureNoBlock(session, state);
     if (state === 'cloud') return cloudSuccess(session, cdpPort, log);
 
     if (state === 'email-entry') {
       await click(session, CLICK_EMAIL_ENTRY, '"Continue with email"');
       log('Đã bấm "Continue with email"');
       state = await waitState(session, ['email-input', 'password', 'join', 'cloud'], 30000, 'ô nhập email', log);
-      ensureNoBlock(state);
+      await ensureNoBlock(session, state);
       if (state === 'cloud') return cloudSuccess(session, cdpPort, log);
     }
 
@@ -228,7 +324,7 @@ export async function runLoginFlow({ cdpPort, email, password, log = () => {} })
       await click(session, CLICK_CONTINUE, 'Continue');
       log('Đã bấm Continue');
       state = await waitState(session, ['password', 'join', 'cloud'], 45000, 'ô nhập mật khẩu', log);
-      ensureNoBlock(state);
+      await ensureNoBlock(session, state);
       if (state === 'cloud') return cloudSuccess(session, cdpPort, log);
     }
 
@@ -240,7 +336,7 @@ export async function runLoginFlow({ cdpPort, email, password, log = () => {} })
       await click(session, CLICK_SIGN_IN, 'Sign in');
       log('Đã bấm Sign in');
       state = await waitState(session, ['join', 'cloud'], 45000, 'form xác minh Join space', log);
-      ensureNoBlock(state);
+      await ensureNoBlock(session, state);
       if (state === 'cloud') return cloudSuccess(session, cdpPort, log);
     }
 
@@ -253,6 +349,15 @@ export async function runLoginFlow({ cdpPort, email, password, log = () => {} })
     }
 
     throw new Error(`Trạng thái trang không xác định: ${state || 'trống'}.`);
+  } catch (error) {
+    if (error.code !== 'join-retry') {
+      const base = await saveFailureArtifacts(session, error);
+      if (base) {
+        error.message = `${error.message} [ảnh + chi tiết: ${base}.png]`;
+        log(`Đã lưu ảnh trạng thái lỗi: ${base}.png`);
+      }
+    }
+    throw error;
   } finally {
     session.close();
   }

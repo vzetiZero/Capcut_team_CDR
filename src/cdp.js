@@ -75,19 +75,26 @@ export async function connectCdp(port, webSocketUrl = null) {
   };
 }
 
-export async function createPageSession(port) {
-  let targets = null;
-  for (let attempt = 0; attempt < 10; attempt += 1) {
+export async function createPageSession(port, options = {}) {
+  const waitMs = Number(options.waitMs) || 6000;
+  const deadline = Date.now() + waitMs;
+  let page = null;
+
+  while (Date.now() < deadline) {
     try {
-      targets = await fetchJson(`http://127.0.0.1:${port}/json/list`);
-      if (targets.some((target) => target.type === 'page')) break;
+      const targets = await fetchJson(`http://127.0.0.1:${port}/json/list`);
+      const pages = (targets || []).filter((target) => target.type === 'page');
+      page = pages.find((target) => /capcut\.com/i.test(target.url || ''))
+        || pages.find((target) => target.url && target.url !== 'about:blank')
+        || pages[0]
+        || null;
+      if (page && page.url && page.url !== 'about:blank') break;
     } catch {
       // Chrome chưa sẵn sàng.
     }
     await sleep(300);
   }
 
-  const page = targets?.find((target) => target.type === 'page');
   if (!page) throw new Error('Không tìm thấy tab để thao tác qua CDP.');
 
   const cdp = await connectCdp(port, page.webSocketDebuggerUrl);
@@ -105,6 +112,22 @@ export async function createPageSession(port) {
         throw new Error(description);
       }
       return result.result?.value;
+    },
+    async navigate(url) {
+      try {
+        await cdp.send('Page.navigate', { url });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    async screenshot() {
+      try {
+        const result = await cdp.send('Page.captureScreenshot', { format: 'png' });
+        return result?.data || null;
+      } catch {
+        return null;
+      }
     },
     close: () => cdp.close()
   };
